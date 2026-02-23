@@ -7,3 +7,7 @@
 
 # Local History for Visual Studio Code
 .history/
+
+# 日志文件
+logs/
+*.log
