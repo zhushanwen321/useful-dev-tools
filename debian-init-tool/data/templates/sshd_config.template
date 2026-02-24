@@ -1,0 +1,40 @@
+# SSH 配置模板
+# 使用变量: {SSH_PORT}
+
+# 网络设置
+Port {SSH_PORT}
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# 认证设置
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication yes
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+
+# 安全设置
+MaxAuthTries 3
+MaxSessions 10
+LoginGraceTime 60
+StrictModes yes
+
+# 密钥算法
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+# 加密算法 (推荐配置)
+KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512,hmac-sha2-256
+
+# 其他设置
+X11Forwarding no
+PrintMotd no
+AcceptEnv LANG LC_*
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# 包含额外配置
+Include /etc/ssh/sshd_config.d/*.conf
