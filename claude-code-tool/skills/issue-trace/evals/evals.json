@@ -1,0 +1,26 @@
+{
+  "skill_name": "issue-trace-analyzer",
+  "evals": [
+    {
+      "id": 1,
+      "name": "chat-api-message-save",
+      "prompt": "分析以下问题：\n\nbackend/app/api/routes/chat.py 中的消息保存逻辑可能导致数据丢失。当用户发送消息时，如果数据库操作失败，消息可能会丢失而没有适当的错误处理。",
+      "expected_output": "应该分析 chat.py 文件的调用链路，追踪消息保存的完整流程，验证是否存在数据丢失风险，并给出 1-10 分的评分。报告应保存到 docs/trace-reports/ 目录。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "multiple-issues",
+      "prompt": "审查以下问题：\n\n1. backend/app/services/completeness_service.py 计算结果不正确\n2. frontend/src/components/Chat.vue 消息列表更新不及时",
+      "expected_output": "应该分别分析两个问题各自的调用链路和数据链路，验证问题是否真实存在，给出每个问题的评分，最后生成汇总报告。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "false-issue",
+      "prompt": "分析这个问题：\n\nbackend/app/infra/db/models/chat_session.py 中的 ChatSession 模型缺少必要的索引，会导致性能问题。",
+      "expected_output": "应该分析 ChatSession 模型的定义和调用链路，验证是否真的缺少索引，评估性能问题的严重程度，给出合理的评分（可能是一个 1-4 分的虚假或轻微问题）。",
+      "files": []
+    }
+  ]
+}

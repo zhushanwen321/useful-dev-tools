@@ -1,0 +1,26 @@
+{
+  "category": "{category}",
+  "language": "{language}",
+  "last_updated": "{timestamp}",
+  "problems": [
+    {
+      "id": "{problem_id}",
+      "title": "{problem_title}",
+      "file": "{filename}",
+      "severity": "{severity}",
+      "tags": ["{tag1}", "{tag2}"],
+      "error_signature": "{unique_error_signature}",
+      "occurrence_count": 1,
+      "first_seen": "{date}",
+      "last_seen": "{date}"
+    }
+  ],
+  "tag_counts": {
+    "{tag}": 1
+  },
+  "severity_counts": {
+    "critical": 0,
+    "major": 1,
+    "minor": 0
+  }
+}
