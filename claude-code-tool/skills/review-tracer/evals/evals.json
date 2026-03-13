@@ -1,0 +1,150 @@
+{
+  "skill_name": "review-reviewer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我发现了一个SQL注入漏洞。在 user_service.py 的 get_user 函数中，用户输入直接拼接到SQL查询语句中，没有使用参数化查询。\n\n代码片段：\n```python\ndef get_user(user_id):\n    query = f\"SELECT * FROM users WHERE id = {user_id}\"\n    return db.execute(query)\n```\n\n某代码审查工具的输出：\n- [严重] SQL注入漏洞：用户输入直接拼接到SQL查询中，攻击者可以通过构造恶意输入执行任意SQL语句\n- 建议：使用参数化查询或ORM来防止SQL注入\n- 相关代码：user_service.py:15\n- CWE-89: SQL Injection\n\n请评估这个审查工具的质量。",
+      "expected_output": "评估报告应包含：1) 综合评分（8-10分，因为工具准确识别了SQL注入漏洞，给出了正确的建议）；2) 准确性分析（正确识别问题，无误报）；3) 完整性分析（提供了CWE参考，但可以更详细）；4) 实用性分析（建议具体可行）；5) 推荐结论",
+      "files": [],
+      "assertions": [
+        {
+          "name": "包含评分概要",
+          "check": "报告包含明确的1-10分综合评分",
+          "type": "content_check"
+        },
+        {
+          "name": "包含推荐结论",
+          "check": "报告包含明确的推荐结论（不推荐使用/可以使用/非常推荐使用）",
+          "type": "content_check"
+        },
+        {
+          "name": "包含准确性分析",
+          "check": "报告包含准确性维度的分析",
+          "type": "content_check"
+        },
+        {
+          "name": "包含完整性分析",
+          "check": "报告包含完整性维度的分析",
+          "type": "content_check"
+        },
+        {
+          "name": "包含实用性分析",
+          "check": "报告包含实用性维度的分析",
+          "type": "content_check"
+        },
+        {
+          "name": "评分合理（高分）",
+          "check": "综合评分在8-10分之间（因为审查工具准确识别了SQL注入问题并给出正确建议）",
+          "type": "score_range",
+          "min": 8,
+          "max": 10
+        },
+        {
+          "name": "推荐结论积极",
+          "check": "推荐结论为'可以使用'或'非常推荐使用'",
+          "type": "content_check"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "我发现一个内存泄漏问题。在 data_processor.py 中，处理大文件时没有正确关闭文件句柄，导致内存持续增长。\n\n代码片段：\n```python\ndef process_file(filepath):\n    f = open(filepath, 'r')\n    data = f.read()\n    # 处理数据\n    return parse_data(data)\n```\n\n某代码审查工具的输出：\n- [中等] 未使用变量：函数内的变量 'f' 定义后未被使用\n- [轻微] 代码风格：建议使用with语句管理文件资源\n- [轻微] 命名规范：变量名 'f' 不够描述性，建议使用 'file_handle'\n- 相关代码：data_processor.py:42\n\n请评估这个审查工具的质量。",
+      "expected_output": "评估报告应包含：1) 综合评分（1-4分，因为工具完全遗漏了核心的内存泄漏问题，反而关注了次要的命名规范问题）；2) 准确性分析（严重漏报，报告的问题都不是核心问题）；3) 完整性分析（完全遗漏了关键问题）；4) 实用性分析（建议对解决实际问题无帮助）；5) 推荐结论（不推荐使用）",
+      "files": [],
+      "assertions": [
+        {
+          "name": "包含评分概要",
+          "check": "报告包含明确的1-10分综合评分",
+          "type": "content_check"
+        },
+        {
+          "name": "包含推荐结论",
+          "check": "报告包含明确的推荐结论（不推荐使用/可以使用/非常推荐使用）",
+          "type": "content_check"
+        },
+        {
+          "name": "包含准确性分析",
+          "check": "报告包含准确性维度的分析",
+          "type": "content_check"
+        },
+        {
+          "name": "包含完整性分析",
+          "check": "报告包含完整性维度的分析",
+          "type": "content_check"
+        },
+        {
+          "name": "包含实用性分析",
+          "check": "报告包含实用性维度的分析",
+          "type": "content_check"
+        },
+        {
+          "name": "评分合理（低分）",
+          "check": "综合评分在1-4分之间（因为审查工具完全遗漏了核心的内存泄漏问题）",
+          "type": "score_range",
+          "min": 1,
+          "max": 4
+        },
+        {
+          "name": "推荐结论消极",
+          "check": "推荐结论为'不推荐使用'",
+          "type": "content_check"
+        },
+        {
+          "name": "识别核心问题被遗漏",
+          "check": "报告明确指出审查工具遗漏了文件句柄未关闭的核心问题",
+          "type": "content_check"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "我发现一个竞态条件问题。在 transaction_manager.py 的 transfer 函数中，检查余额和扣款操作之间没有加锁，可能导致并发问题。\n\n代码片段：\n```python\ndef transfer(from_account, to_account, amount):\n    if from_account.balance >= amount:\n        from_account.balance -= amount\n        to_account.balance += amount\n        return True\n    return False\n```\n\n某代码审查工具的输出：\n- [严重] 竞态条件：在多线程环境下，余额检查和扣款操作之间可能被其他线程打断，导致余额被扣成负数\n- 建议：使用数据库事务或分布式锁来保证操作的原子性\n- 参考模式：Compare-And-Swap (CAS)、乐观锁、悲观锁\n- 示例代码：\n```python\n# 使用数据库事务\ndef transfer(from_account, to_account, amount):\n    with db.transaction():\n        if from_account.balance >= amount:\n            from_account.balance -= amount\n            to_account.balance += amount\n            return True\n        return False\n```\n- 相关代码：transaction_manager.py:78-82\n\n请评估这个审查工具的质量。",
+      "expected_output": "评估报告应包含：1) 综合评分（8-10分，因为工具准确识别了竞态条件问题，并提供了详细的解决方案和示例代码）；2) 准确性分析（完全正确，无误报漏报）；3) 完整性分析（提供了多种解决方案参考和可执行的示例代码）；4) 实用性分析（建议非常具体，可直接参考使用）；5) 推荐结论（非常推荐使用）",
+      "files": [],
+      "assertions": [
+        {
+          "name": "包含评分概要",
+          "check": "报告包含明确的1-10分综合评分",
+          "type": "content_check"
+        },
+        {
+          "name": "包含推荐结论",
+          "check": "报告包含明确的推荐结论（不推荐使用/可以使用/非常推荐使用）",
+          "type": "content_check"
+        },
+        {
+          "name": "包含准确性分析",
+          "check": "报告包含准确性维度的分析",
+          "type": "content_check"
+        },
+        {
+          "name": "包含完整性分析",
+          "check": "报告包含完整性维度的分析",
+          "type": "content_check"
+        },
+        {
+          "name": "包含实用性分析",
+          "check": "报告包含实用性维度的分析",
+          "type": "content_check"
+        },
+        {
+          "name": "评分合理（高分）",
+          "check": "综合评分在8-10分之间（因为审查工具准确识别了竞态条件问题并提供了详细的解决方案和示例代码）",
+          "type": "score_range",
+          "min": 8,
+          "max": 10
+        },
+        {
+          "name": "推荐结论积极",
+          "check": "推荐结论为'非常推荐使用'",
+          "type": "content_check"
+        },
+        {
+          "name": "识别示例代码价值",
+          "check": "报告对审查工具提供的示例代码给予正面评价",
+          "type": "content_check"
+        }
+      ]
+    }
+  ]
+}
