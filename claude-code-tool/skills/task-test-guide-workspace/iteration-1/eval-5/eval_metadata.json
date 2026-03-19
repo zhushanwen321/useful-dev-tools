@@ -1,0 +1,10 @@
+{
+  "eval_id": 5,
+  "eval_name": "diagnose-api-token-error",
+  "prompt": "我的任务执行失败了，错误是 '402 Invalid token'",
+  "assertions": [
+    {"text": "识别为 API Token 问题", "type": "boolean"},
+    {"text": "参考常见错误模式表", "type": "boolean"},
+    {"text": "提供处理建议", "type": "boolean"}
+  ]
+}

@@ -1,0 +1,221 @@
+# 修复前的性能分析输出
+
+使用本地 rope 库: /Users/zhushanwen/GitApp/rope
+项目路径: /Users/zhushanwen/Code/stock-data-crawler
+已清理初始 .ropeproject 缓存目录
+
+扫描范围: 606 个 Python 文件
+
+
+======================================================================
+测试: 第一个模块（无缓存）
+======================================================================
+已清理 .ropeproject 缓存
+
+模块: cagr.py
+  get_resource: 0.000s
+  MoveModule.__init__: 0.001s
+
+详细分析 get_changes:
+  分析 606 个文件...
+    进度: 0/606
+    进度: 100/606
+    进度: 200/606
+    进度: 300/606
+    进度: 400/606
+    进度: 500/606
+    进度: 600/606
+  结果:
+    有引用的文件: 3/606
+    occurs_in_module 总耗时: 11.254s (18.57ms/文件)
+    get_pymodule 总耗时: 0.000s (0.00ms/文件)
+    change_module 总耗时: 21.522s (7173.92ms/文件)
+    总计: 32.776s
+
+完整 get_changes 调用（cProfile 分析）:
+  实际耗时: 53.054s
+  受影响文件: 5
+
+  cProfile 结果（按累计时间排序，前20个）:
+             221139908 function calls (221070933 primitive calls) in 53.054 seconds
+       Ordered by: cumulative time
+       List reduced from 455 to 20 due to restriction <20>
+       ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+            1    0.000    0.000   53.054   53.054 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:521(get_changes)
+            1    0.000    0.000   53.054   53.054 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:535(_calculate_changes)
+            8    0.000    0.000   53.028    6.628 /Users/zhushanwen/GitApp/rope/rope/base/project.py:145(find_module)
+            8    0.000    0.000   53.025    6.628 /Users/zhushanwen/GitApp/rope/rope/base/project.py:84(get_source_folders)
+      66744/8    0.146    0.000   53.025    6.628 /Users/zhushanwen/GitApp/rope/rope/base/pycore.py:148(_find_source_folders)
+       200216    0.723    0.000   51.957    0.000 /Users/zhushanwen/GitApp/rope/rope/base/resources.py:171(get_children)
+          606    0.000    0.000   39.742    0.066 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:570(_change_occurrences_in_module)
+          618    0.000    0.000   39.730    0.064 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:78(find_occurrences)
+            8    0.000    0.000   39.719    4.965 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:229(__call__)
+            8    0.000    0.000   39.717    4.965 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:193(same_pyname)
+           14    0.000    0.000   39.717    2.837 /Users/zhushanwen/GitApp/rope/rope/base/pynames.py:158(get_definition_location)
+           38    0.000    0.000   39.717    1.045 /Users/zhushanwen/GitApp/rope/rope/base/pynames.py:133(_get_pymodule)
+            6    0.000    0.000   39.717    6.620 /Users/zhushanwen/GitApp/rope/rope/base/project.py:60(get_module)
+       133480    0.140    0.000   35.065    0.000 /Users/zhushanwen/GitApp/rope/rope/base/resources.py:222(get_folders)
+      3550212    0.764    0.000   29.177    0.000 /Users/zhushanwen/GitApp/rope/rope/base/resources.py:207(get_child)
+      3550242    2.024    0.000   27.382    0.000 /Users/zhushanwen/GitApp/rope/rope/base/project.py:37(get_resource)
+          609    0.000    0.000   19.912    0.033 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:742(occurs_in_module)
+      614/609    0.000    0.000   19.908    0.033 {built-in method builtins.next}
+            3    0.000    0.000   19.825    6.608 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:731(rename_in_module)
+            3    0.000    0.000   19.825    6.608 /Users/zhushanwen/GitApp/rope/rope/refactor/rename.py:227(rename_in_module)
+
+======================================================================
+测试: 第二个模块（有缓存）
+======================================================================
+
+模块: moving_average.py
+  get_resource: 0.000s
+  MoveModule.__init__: 0.000s
+
+详细分析 get_changes:
+  分析 606 个文件...
+    进度: 0/606
+    进度: 100/606
+    进度: 200/606
+    进度: 300/606
+    进度: 400/606
+    进度: 500/606
+    进度: 600/606
+  结果:
+    有引用的文件: 2/606
+    occurs_in_module 总耗时: 7.103s (11.72ms/文件)
+    get_pymodule 总耗时: 0.000s (0.00ms/文件)
+    change_module 总耗时: 14.184s (7092.14ms/文件)
+    总计: 21.287s
+
+完整 get_changes 调用（cProfile 分析）:
+  实际耗时: 39.630s
+  受影响文件: 4
+
+  cProfile 结果（按累计时间排序，前20个）:
+             165859900 function calls (165807962 primitive calls) in 39.630 seconds
+       Ordered by: cumulative time
+       List reduced from 333 to 20 due to restriction <20>
+       ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+            1    0.000    0.000   39.630   39.630 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:521(get_changes)
+            1    0.000    0.000   39.630   39.630 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:535(_calculate_changes)
+            6    0.000    0.000   39.612    6.602 /Users/zhushanwen/GitApp/rope/rope/base/project.py:145(find_module)
+            6    0.000    0.000   39.610    6.602 /Users/zhushanwen/GitApp/rope/rope/base/project.py:84(get_source_folders)
+      50058/6    0.111    0.000   39.610    6.602 /Users/zhushanwen/GitApp/rope/rope/base/pycore.py:148(_find_source_folders)
+       150162    0.552    0.000   38.811    0.000 /Users/zhushanwen/GitApp/rope/rope/base/resources.py:171(get_children)
+          606    0.000    0.000   26.361    0.044 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:570(_change_occurrences_in_module)
+          614    0.000    0.000   26.352    0.043 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:78(find_occurrences)
+            4    0.000    0.000   26.346    6.586 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:229(__call__)
+            4    0.000    0.000   26.345    6.586 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:193(same_pyname)
+            8    0.000    0.000   26.345    3.293 /Users/zhushanwen/GitApp/rope/rope/base/pynames.py:158(get_definition_location)
+           24    0.000    0.000   26.345    1.098 /Users/zhushanwen/GitApp/rope/rope/base/pynames.py:133(_get_pymodule)
+            4    0.000    0.000   26.345    6.586 /Users/zhushanwen/GitApp/rope/rope/base/project.py:60(get_module)
+       100110    0.106    0.000   26.126    0.000 /Users/zhushanwen/GitApp/rope/rope/base/resources.py:222(get_folders)
+      2662638    0.577    0.000   21.840    0.000 /Users/zhushanwen/GitApp/rope/rope/base/resources.py:207(get_child)
+      2662664    1.540    0.000   20.494    0.000 /Users/zhushanwen/GitApp/rope/rope/base/project.py:37(get_resource)
+      1317900    0.184    0.000   14.532    0.000 /Users/zhushanwen/GitApp/rope/rope/base/project.py:284(is_ignored)
+      1317900    3.149    0.000   14.348    0.000 /Users/zhushanwen/GitApp/rope/rope/base/resources.py:259(does_match)
+            1    0.000    0.000   13.268   13.268 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:560(_change_moving_module)
+            1    0.000    0.000   13.267   13.267 /Users/zhushanwen/GitApp/rope/rope/refactor/importutils/__init__.py:171(relatives_to_absolutes)
+
+======================================================================
+性能对比汇总
+======================================================================
+指标                                         无缓存             有缓存              变化
+----------------------------------------------------------------------
+occurs_in_module                        11.254s           7.103s          -36.9%
+get_pymodule                             0.000s           0.000s          -52.2%
+change_module                           21.522s          14.184s          -34.1%
+有引用文件数                                       3               2
+
+---
+
+# 修复后的性能分析输出
+
+使用本地 rope 库: /Users/zhushanwen/GitApp/rope
+项目路径: /Users/zhushanwen/Code/stock-data-crawler
+已清理初始 .ropeproject 缓存目录
+
+扫描范围: 606 个 Python 文件
+
+
+======================================================================
+测试: 第一个模块（无缓存）
+======================================================================
+已清理 .ropeproject 缓存
+
+模块: cagr.py
+  get_resource: 0.000s
+  MoveModule.__init__: 0.001s
+
+详细分析 get_changes:
+  分析 606 个文件...
+    进度: 0/606
+    进度: 100/606
+    进度: 200/606
+    进度: 300/606
+    进度: 400/606
+    进度: 500/606
+    进度: 600/606
+  结果:
+    有引用的文件: 3/606
+    occurs_in_module 总耗时: 3.931s (6.49ms/文件)
+    get_pymodule 总耗时: 0.000s (0.00ms/文件)
+    change_module 总耗时: 0.006s (2.15ms/文件)
+    总计: 3.937s
+
+完整 get_changes 调用（cProfile 分析）:
+  实际耗时: 0.024s
+  受影响文件: 5
+
+  cProfile 结果（按累计时间排序，前20个）:
+             82780 function calls (80541 primitive calls) in 0.024 seconds
+       Ordered by: cumulative time
+       List reduced from 442 to 20 due to restriction <20>
+       ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+            1    0.000    0.000    0.024    0.024 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:521(get_changes)
+            1    0.000    0.000    0.024    0.024 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:535(_calculate_changes)
+          606    0.000    0.000    0.021    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:570(_change_occurrences_in_module)
+          609    0.000    0.000    0.015    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:742(occurs_in_module)
+          618    0.000    0.000    0.013    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:78(find_occurrences)
+      614/609    0.000    0.000    0.011    0.000 {built-in method builtins.next}
+          623    0.000    0.000    0.007    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:323(find_offsets)
+     2641/705    0.001    0.000    0.006    0.000 /Users/zhushanwen/GitApp/rope/rope/base/utils/__init__.py:10(_wrapper)
+           29    0.005    0.000    0.006    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:332(_re_search)
+          612    0.000    0.000    0.004    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:748(_create_finder)
+          612    0.000    0.000    0.003    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:94(create_finder)
+            1    0.000    0.000    0.003    0.003 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:560(_change_moving_module)
+          612    0.000    0.000    0.003    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:69(__init__)
+            8    0.000    0.000    0.003    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:229(__call__)
+          612    0.000    0.000    0.003    0.000 /Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py:311(__init__)
+          292    0.000    0.000    0.003    0.000 /Users/zhushanwen/GitApp/rope/base/resources.py:207(get_child)
+            8    0.000    0.000    0.002    0.000 /Users/zhushanwen/GitApp/rope/rope/base/project.py:146(find_module)
+          306    0.000    0.000    0.002    0.000 /Users/zhushanwen/GitApp/rope/rope/base/project.py:37(get_resource)
+            3    0.000    0.000    0.002    0.001 /Users/zhushanwen/GitApp/rope/rope/refactor/move.py:731(rename_in_module)
+            3    0.000    0.000    0.002    0.001 /Users/zhushanwen/GitApp/rope/rope/refactor/rename.py:227(rename_in_module)
+
+======================================================================
+测试: 第二个模块（有缓存）
+======================================================================
+
+模块: moving_average.py
+  get_resource: 0.000s
+  MoveModule.__init__: 0.000s
+
+详细分析 get_changes:
+  分析 606 个文件...
+    进度: 0/606
+    进度: 100/606
+    进度: 200/606
+    进度: 300/606
+    进度: 400/606
+    进度: 500/606
+    进度: 600/606
+  结果:
+    有引用的文件: 2/606
+    occurs_in_module 总耗时: 0.005s (0.01ms/文件)
+    get_pymodule 总耗时: 0.000s (0.00ms/文件)
+    change_module 总耗时: 0.003s (1.64ms/文件)
+    总计: 0.009s
+
+完整 get_changes 调用（cProfile 分析）:
+  实际耗时: 0.016s
+  受影响文件: 4

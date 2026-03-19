@@ -1,0 +1,11 @@
+{
+  "eval_id": 3,
+  "eval_name": "diagnose-transaction-issue",
+  "prompt": "technical_indicator 任务执行后显示 completed 但数据库里没有数据，帮我诊断一下问题",
+  "assertions": [
+    {"text": "识别为'事务未提交'问题", "type": "boolean"},
+    {"text": "引导检查 _write_with_session 方法", "type": "boolean"},
+    {"text": "引导检查 session.commit() 调用", "type": "boolean"},
+    {"text": "提供诊断步骤", "type": "boolean"}
+  ]
+}

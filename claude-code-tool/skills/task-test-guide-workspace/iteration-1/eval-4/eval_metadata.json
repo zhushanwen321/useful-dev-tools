@@ -1,0 +1,10 @@
+{
+  "eval_id": 4,
+  "eval_name": "test-calculation-task",
+  "prompt": "测试一下 financial_factor 任务",
+  "assertions": [
+    {"text": "识别这是 calculation 任务", "type": "boolean"},
+    {"text": "检查上游依赖", "type": "boolean"},
+    {"text": "执行完整测试流程", "type": "boolean"}
+  ]
+}

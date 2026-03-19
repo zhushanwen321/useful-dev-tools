@@ -1,0 +1,11 @@
+{
+  "eval_id": 2,
+  "eval_name": "verify-stock-daily-ohlcv",
+  "prompt": "帮我验证一下 stock_daily_ohlcv 任务是否正常工作",
+  "assertions": [
+    {"text": "识别这是 collection 任务", "type": "boolean"},
+    {"text": "查找了对应的测试指南文档", "type": "boolean"},
+    {"text": "包含参数验证或依赖检查", "type": "boolean"},
+    {"text": "包含数据库验证步骤", "type": "boolean"}
+  ]
+}

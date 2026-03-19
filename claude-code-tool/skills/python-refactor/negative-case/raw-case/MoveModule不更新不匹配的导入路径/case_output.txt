@@ -1,0 +1,30 @@
+============================================================
+重现问题：MoveModule 不更新不匹配的导入路径
+============================================================
+
+重构前的 bar.py 内容:
+
+# 错误：导入路径与实际位置不匹配
+from wrong.path.foo import foo
+
+def bar():
+    return foo()
+
+
+执行 MoveModule: calc/foo.py -> calc/sub/
+
+变更的文件数量: 2
+  - calc/foo.py
+  - calc/foo.py
+
+重构后的 bar.py 内容:
+
+# 错误：导入路径与实际位置不匹配
+from wrong.path.foo import foo
+
+def bar():
+    return foo()
+
+
+❌ 问题重现：导入语句没有被更新！
+   bar.py 仍然导入 'wrong.path.foo'

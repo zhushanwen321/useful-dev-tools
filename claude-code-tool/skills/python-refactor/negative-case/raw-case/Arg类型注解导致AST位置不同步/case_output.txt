@@ -1,0 +1,63 @@
+ERROR: MismatchedTokenError: Pattern <Keyword: 'def', Name: 'process_data'> at (2, 4) cannot be matched
+
+Traceback (most recent call last):
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 86, in _handle
+    self._apply(node, children)
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 116, in _apply
+    child = self.child_nodes[abs(self.current_offset)]
+IndexError: list index out of range
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 94, in _handle
+    self.children = list(self._get_children(children))
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 126, in _get_children
+    for child in children:
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 145, in _get_children
+    yield self._get_child(child)
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 167, in _get_child
+    self.current_offset = next(self.offsets)
+StopIteration
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ".../case_script.py", line XX, in main
+    renamer = Rename(project, resource, offset=offset)
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/rename.py", line 43, in __init__
+    self.renamer = self._get_renamer()
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/rename.py", line 46, in _get_renamer
+    occurrence_finder = create_finder(
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py", line 50, in create_finder
+    return Finder(pycore, resource, offset, **kwargs)
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/occurrences.py", line 69, in __init__
+    self.pymodule = pycore.resource_to_pyobject(resource)
+  File "/Users/zhushanwen/GitApp/rope/rope/base/pyobjectsdef.py", line 103, in resource_to_pyobject
+    return self.module_to_pyobject(resource)
+  File "/Users/zhushanwen/GitApp/rope/rope/base/pyobjectsdef.py", line 118, in module_to_pyobject
+    return PyModule(self.pycore, resource)
+  File "/Users/zhushanwen/GitApp/rope/rope/base/pyobjectsdef.py", line 244, in __init__
+    self.init_names()
+  File "/Users/zhushanwen/GitApp/rope/rope/base/pyobjectsdef.py", line 253, in init_names
+    self._init_source_and_names()
+  File "/Users/zhushanwen/GitApp/rope/rope/base/pyobjectsdef.py", line 267, in _init_source_and_names
+    self._init_pyobject()
+  File "/Users/zhushanwen/GitApp/rope/rope/base/pyobjectsdef.py", line 291, in _init_pyobject
+    self.ast = patchedast.patch_ast(
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 38, in patch_ast
+    ast_node_handling_functions[ast_node.__class__.__name__](ast_node)
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 73, in _Call
+    self._handle(node, ["func"] + node.args + ["keywords"])
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 94, in _handle
+    self.children = list(self._get_children(children))
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 126, in _get_children
+    for child in children:
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 145, in _get_children
+    yield self._get_child(child)
+  ...
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 291, in _FunctionDef
+    self._handle(node, children)
+  File "/Users/zhushanwen/GitApp/rope/rope/refactor/patchedast.py", line 96, in _handle
+    raise MismatchedTokenError(
+rope.base.exceptions.MismatchedTokenError: Pattern <Keyword: 'def', Name: 'process_data'> at (2, 4) cannot be matched

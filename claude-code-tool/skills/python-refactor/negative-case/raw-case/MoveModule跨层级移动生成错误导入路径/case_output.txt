@@ -1,0 +1,35 @@
+============================================================
+预览变更：
+============================================================
+
+文件: backend/app/api/route/health.py
+操作: --- a/backend/app/api/route/health.py
++++ b/backend/app/api/route/health.py
+@@ -9,7 +9,7 @@
+ from pydantic import BaseModel
+ from sqlalchemy import text
+
+-from app.api.constant.constants import APP_VERSION, app_start_time
++from constant.constants import APP_VERSION, app_start_time  # ❌ 错误导入
+ from app.infra.db.base import async_session_maker
+ from app.shared.util.datetime_utils import now_shanghai
+
+============================================================
+总计: 9 个文件将被修改
+============================================================
+
+检查变更内容...
+⚠️  backend/app/api/route/system_config.py 可能包含错误的导入路径
+⚠️  backend/app/application/service/system_config_service.py 可能包含错误的导入路径
+⚠️  backend/app/api/route/health.py 可能包含错误的导入路径
+⚠️  backend/app/application/service/initialization_service.py 可能包含错误的导入路径
+⚠️  backend/app/shared/util/rate_limiter.py 可能包含错误的导入路径
+⚠️  backend/app/infra/db/model/system/system_config.py 可能包含错误的导入路径
+⚠️  backend/app/api/schema/system_config.py 可能包含错误的导入路径
+⚠️  backend/app/main.py 可能包含错误的导入路径
+
+❌ 检测到错误的导入路径生成
+rope 生成的导入: from constant.constants import
+期望的导入: from app.api.shared.constant.constants import
+
+这是 rope MoveModule 在跨层级移动时的已知限制。

@@ -1,0 +1,27 @@
+{
+  "eval_id": 1,
+  "eval_name": "test-stock-info",
+  "prompt": "测试 stock_info 任务",
+  "assertions": [
+    {
+      "text": "检查了服务状态（前端和后端）",
+      "type": "boolean"
+    },
+    {
+      "text": "通过 API 触发了 stock_info 任务",
+      "type": "boolean"
+    },
+    {
+      "text": "包含了数据库直接验证步骤（不仅是 API 检查）",
+      "type": "boolean"
+    },
+    {
+      "text": "验证了 collection_stock_info 表的记录数",
+      "type": "boolean"
+    },
+    {
+      "text": "生成了测试报告或结果总结",
+      "type": "boolean"
+    }
+  ]
+}
