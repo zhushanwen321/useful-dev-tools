@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-03-18T00:00:00Z",
+  "skill_name": "py-preference",
+  "dimension": "user",
+  "summarized": true,
+  "summary_ref": "memory/user/quick-notes/py-preference/note-2026-03-19.md",
+  "trigger_context": "迁移 py-preference 原有经验记录",
+  "issue_type": "功能",
+  "severity": "minor",
+  "description": "For 循环变量重用时的类型不兼容问题 - 记录了用户偏好使用不同变量名的方案，提炼了'语义优先'原则：通过变量名表达意图，而非依赖工具的类型推断",
+  "user_feedback": "原记录：选择使用不同变量名，理由是代码更清晰、不依赖 mypy 类型推断、改动小影响明确",
+  "context": {
+    "category": "type-hint",
+    "scenario": "同一函数中使用多个 for 循环，循环变量同名导致 mypy 报类型不兼容错误",
+    "decision": "使用不同变量名（如 item、calc_item）而非类型注解或 type: ignore",
+    "principles": [
+      "语义优先：通过变量名表达意图，而非依赖工具的类型推断",
+      "显式优于隐式：每个变量有独立的语义名称，代码自解释",
+      "工具服务于人：不为了满足 mypy 而牺牲代码可读性"
+    ]
+  },
+  "environment": {
+    "model": "迁移记录",
+    "platform": "通用"
+  },
+  "tags": ["mypy", "for-loop", "variable", "type-inference", "语义优先", "原则提取"]
+}

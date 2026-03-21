@@ -1,0 +1,17 @@
+{
+  "skill_name": "py-preference",
+  "dimension": "project",
+  "last_updated": "2026-03-19T00:00:03Z",
+  "issues": [
+    {
+      "id": "issue-001",
+      "type": "功能",
+      "count": 1,
+      "first_seen": "2026-03-19",
+      "last_seen": "2026-03-19",
+      "severity": "minor",
+      "summary": "py-preference skill记录了Python开发偏好，包括类型标注、代码风格等",
+      "status": "pending"
+    }
+  ]
+}

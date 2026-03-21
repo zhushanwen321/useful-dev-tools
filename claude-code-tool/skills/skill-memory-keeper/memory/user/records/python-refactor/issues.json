@@ -1,0 +1,17 @@
+{
+  "skill_name": "python-refactor",
+  "dimension": "user",
+  "last_updated": "2026-03-19T00:00:00Z",
+  "issues": [
+    {
+      "id": "issue-001",
+      "type": "功能",
+      "count": 1,
+      "first_seen": "2026-03-19",
+      "last_seen": "2026-03-19",
+      "severity": "minor",
+      "summary": "python-refactor拥有完整的rope库API文档和负向用例库沉淀",
+      "status": "pending"
+    }
+  ]
+}

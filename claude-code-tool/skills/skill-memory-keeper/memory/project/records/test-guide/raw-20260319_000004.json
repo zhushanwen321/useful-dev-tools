@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-03-19T00:00:04Z",
+  "skill_name": "test-guide",
+  "dimension": "project",
+  "summarized": false,
+  "summary_ref": null,
+  "trigger_context": "整理现有skills的沉淀内容时记录",
+  "issue_type": "功能",
+  "severity": "minor",
+  "description": "test-guide skill有完整的任务测试文档，包括主流程和各任务详细文档",
+  "user_feedback": "该skill提供了端到端的任务测试指南",
+  "context": {
+    "command": "整理skills",
+    "input": "查看test-guide目录内容",
+    "output": "发现references/下有完整的测试文档"
+  },
+  "environment": {
+    "model": "claude-sonnet-4-6",
+    "platform": "claude-code"
+  },
+  "project": "stock-data-crawler",
+  "tags": ["任务测试", "端到端测试", "项目特定"],
+  "沉淀内容": {
+    "references/": [
+      "00-master-flow.md - 主流程文档（强制阅读）"
+    ],
+    "references/collection/": [
+      "stock_info.md - stock_info任务文档",
+      "stock_daily_ohlcv.md - stock_daily_ohlcv任务文档",
+      "stock_calendar.md - stock_calendar任务文档",
+      "stock_financial.md - stock_financial任务文档",
+      "stock_industry.md - stock_industry任务文档",
+      "stock_industry_member.md - stock_industry_member任务文档",
+      "stock_daily_flow.md - stock_daily_flow任务文档",
+      "stock_daily_indicator.md - stock_daily_indicator任务文档",
+      "north_money_hold.md - north_money_hold任务文档",
+      "margin_detail.md - margin_detail任务文档",
+      "sw_index.md - sw_index任务文档",
+      "README.md - collection任务说明"
+    ],
+    "references/calculation/": [
+      "technical_indicator.md - technical_indicator任务文档",
+      "financial_factor.md - financial_factor任务文档",
+      "market_valuation.md - market_valuation任务文档",
+      "market_sentiment.md - market_sentiment任务文档",
+      "industry_valuation.md - industry_valuation任务文档",
+      "README.md - calculation任务说明"
+    ],
+    "任务统计": {
+      "collection任务数": 11,
+      "calculation任务数": 5,
+      "总任务数": 16
+    },
+    "价值点": [
+      "文档分层：主流程 + 分类任务文档",
+      "执行前必读：强制要求阅读主流程和任务文档",
+      "包含服务检查和启动命令",
+      "有完整的测试流程：前置准备 → 触发任务 → 观察执行 → 验证数据 → 问题诊断",
+      "边界明确：只负责测试，不负责更新文档",
+      "常见任务参考表：快速查找任务对应的表名和文档"
+    ]
+  }
+}

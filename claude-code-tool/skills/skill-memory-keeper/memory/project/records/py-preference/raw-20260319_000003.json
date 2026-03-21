@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-03-19T00:00:03Z",
+  "skill_name": "py-preference",
+  "dimension": "project",
+  "summarized": false,
+  "summary_ref": null,
+  "trigger_context": "整理现有skills的沉淀内容时记录",
+  "issue_type": "功能",
+  "severity": "minor",
+  "description": "py-preference skill记录了Python开发偏好，包括类型标注、代码风格等",
+  "user_feedback": "该skill帮助AI在Python开发时自动采用用户偏好",
+  "context": {
+    "command": "整理skills",
+    "input": "查看py-preference目录内容",
+    "output": "发现references/下有具体的偏好记录"
+  },
+  "environment": {
+    "model": "claude-sonnet-4-6",
+    "platform": "claude-code"
+  },
+  "project": "stock-data-crawler",
+  "tags": ["Python偏好", "类型标注", "代码风格", "项目特定"],
+  "沉淀内容": {
+    "references/type-hint/": [
+      "for-loop-variable.md - for循环变量命名偏好",
+      "mypy-sqlalchemy-rowcount-fix.md - mypy修复方案偏好"
+    ],
+    "深层偏好原则": {
+      "代码清晰性": [
+        "语义优先：让代码意图更清晰",
+        "显式优于隐式：变量名、类型、逻辑应自解释",
+        "最小改动原则：改动范围小、影响边界清晰",
+        "正面修复优于忽略：优先解决问题而非绕过",
+        "集中管理重复逻辑：封装重复逻辑为辅助方法"
+      ],
+      "决策风格": [
+        "实用主义：够用且简单",
+        "避免过度工程：不为假设的未来需求过度设计",
+        "工具服务于人：工具是辅助，不应主导决策"
+      ],
+      "类型标注": [
+        "语义化命名：通过变量名或方法名表达意图",
+        "接受工具限制：工具的误报可以接受，优先正面修复"
+      ]
+    },
+    "价值点": [
+      "不仅有具体案例记录，还有提炼的深层偏好原则",
+      "优先级清晰：深层原则 > 具体案例 > 项目规范",
+      "当偏好记录中没有相关内容时，会向用户展示方案并建议记录新偏好"
+    ]
+  }
+}

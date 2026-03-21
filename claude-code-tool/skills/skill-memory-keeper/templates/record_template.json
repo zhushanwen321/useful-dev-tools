@@ -1,0 +1,19 @@
+{
+  "timestamp": "{{TIMESTAMP}}",
+  "skill_name": "{{SKILL_NAME}}",
+  "trigger_context": "{{TRIGGER_CONTEXT}}",
+  "issue_type": "{{ISSUE_TYPE}}",
+  "severity": "{{SEVERITY}}",
+  "description": "{{DESCRIPTION}}",
+  "user_feedback": "{{USER_FEEDBACK}}",
+  "context": {
+    "command": "{{COMMAND}}",
+    "input": "{{INPUT}}",
+    "output": "{{OUTPUT}}"
+  },
+  "environment": {
+    "model": "{{MODEL}}",
+    "platform": "{{PLATFORM}}"
+  },
+  "tags": {{TAGS}}
+}

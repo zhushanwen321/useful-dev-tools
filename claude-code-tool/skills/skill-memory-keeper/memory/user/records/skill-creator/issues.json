@@ -1,0 +1,17 @@
+{
+  "skill_name": "skill-creator",
+  "dimension": "user",
+  "last_updated": "2026-03-19T00:00:01Z",
+  "issues": [
+    {
+      "id": "issue-001",
+      "type": "功能",
+      "count": 1,
+      "first_seen": "2026-03-19",
+      "last_seen": "2026-03-19",
+      "severity": "minor",
+      "summary": "skill-creator拥有完整的skill创建、测试、评估和优化工具链",
+      "status": "pending"
+    }
+  ]
+}

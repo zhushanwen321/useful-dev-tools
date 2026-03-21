@@ -1,0 +1,27 @@
+{
+  "skill_name": "py-preference",
+  "dimension": "user",
+  "last_updated": "2026-03-19T00:00:00Z",
+  "issues": [
+    {
+      "id": "pref-001",
+      "type": "功能",
+      "count": 1,
+      "first_seen": "2026-03-18",
+      "last_seen": "2026-03-18",
+      "severity": "minor",
+      "summary": "For 循环变量重用的类型处理偏好 - 使用不同变量名",
+      "status": "recorded"
+    },
+    {
+      "id": "pref-002",
+      "type": "功能",
+      "count": 1,
+      "first_seen": "2026-03-18",
+      "last_seen": "2026-03-18",
+      "severity": "minor",
+      "summary": "mypy 类型错误的正面修复偏好 - 创建辅助方法而非 type: ignore",
+      "status": "recorded"
+    }
+  ]
+}

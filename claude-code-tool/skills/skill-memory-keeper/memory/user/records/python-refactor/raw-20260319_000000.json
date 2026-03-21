@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-03-19T00:00:00Z",
+  "skill_name": "python-refactor",
+  "dimension": "user",
+  "summarized": true,
+  "summary_ref": "../memory/user/quick-notes/python-refactor/note-2026-03-19.md",
+  "trigger_context": "整理现有skills的沉淀内容时记录",
+  "issue_type": "功能",
+  "severity": "minor",
+  "description": "python-refactor skill拥有完整的rope库API文档和负向用例库沉淀",
+  "user_feedback": "该skill的参考资料组织完善，分为reference/（API文档）和negative-case/（问题案例）两部分",
+  "context": {
+    "command": "整理skills",
+    "input": "查看python-refactor目录内容",
+    "output": "发现丰富的沉淀内容"
+  },
+  "environment": {
+    "model": "claude-sonnet-4-6",
+    "platform": "claude-code"
+  },
+  "tags": ["文档完善", "负向用例", "rope", "API文档"],
+  "沉淀内容": {
+    "reference/": [
+      "rope-docs/ - rope官方文档（overview.rst, library.rst等）",
+      "fastapi-support.md - FastAPI特定支持",
+      "high-usage-functions.md - 高频函数详解",
+      "api-examples.md - API使用示例"
+    ],
+    "negative-case/": [
+      "MoveModule不更新不匹配的导入路径",
+      "Arg类型注解导致AST位置不同步",
+      "get_source_folders性能问题",
+      "MoveModule-creates-nested-folders",
+      "MoveModule跨层级移动生成错误导入路径"
+    ],
+    "scripts/": [
+      "helpers.py - 辅助函数",
+      "install_rope.sh - rope安装脚本",
+      "update_docs.sh - 文档更新脚本"
+    ],
+    "templates/": [
+      "basic-refactor.py - 重构脚本模板"
+    ],
+    "价值点": [
+      "SKILL.md保持在200行左右，精简而高效",
+      "将详细API文档移到reference/目录，避免SKILL.md膨胀",
+      "负向用例库按问题分类，每个问题包含analysis.md、case_script.py等",
+      "有完整的文档分层策略：核心规则在SKILL.md，详细内容在reference/"
+    ]
+  }
+}

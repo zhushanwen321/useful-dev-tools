@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-03-18T00:00:00Z",
+  "skill_name": "py-preference",
+  "dimension": "user",
+  "summarized": true,
+  "summary_ref": "memory/user/quick-notes/py-preference/note-2026-03-19.md",
+  "trigger_context": "迁移 py-preference 原有经验记录",
+  "issue_type": "功能",
+  "severity": "minor",
+  "description": "正面修复 mypy 类型错误 vs 使用 type: ignore - 记录了用户偏好创建类型安全的辅助方法，提炼了'正面修复优于忽略'和'集中管理重复逻辑'原则",
+  "user_feedback": "原记录：选择创建 _extract_rowcount 辅助方法，理由是类型安全、集中管理、易于维护、代码可读性更好、可测试",
+  "context": {
+    "category": "type-hint",
+    "scenario": "第三方库（如 SQLAlchemy）类型存根不完整导致 mypy 报错时的处理方式",
+    "decision": "创建辅助方法使用 cast 正面修复，而非使用 type: ignore",
+    "principles": [
+      "正面修复优于忽略：优先选择解决类型系统限制的方案，而非绕过检查",
+      "集中管理重复逻辑：将重复的类型转换逻辑封装为辅助方法",
+      "语义化命名：方法名应表达'做什么'而非'怎么做'（如 _extract_rowcount 而非 _cast_rowcount_to_int）"
+    ]
+  },
+  "environment": {
+    "model": "迁移记录",
+    "platform": "通用"
+  },
+  "tags": ["mypy", "sqlalchemy", "type-safety", "refactoring", "正面修复", "集中管理", "原则提取"]
+}

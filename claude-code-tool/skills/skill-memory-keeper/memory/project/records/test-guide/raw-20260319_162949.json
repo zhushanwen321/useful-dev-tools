@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-03-19T16:29:49+08:00",
+  "skill_name": "test-guide",
+  "dimension": "project",
+  "summarized": false,
+  "summary_ref": null,
+  "trigger_context": "用户执行 test-guide skill 测试 trade_calendar 任务",
+  "project": "stock-data-crawler",
+  "branch": "023-backend-structure-refactoring",
+  "issue_type": "文档",
+  "severity": "major",
+  "description": "测试指南文档与实际代码结构不一致，导致测试无法正常进行",
+  "details": [
+    {
+      "category": "任务名称不一致",
+      "document_value": "stock_calendar",
+      "actual_value": "trade_calendar",
+      "impact": "API 返回 400 ValidationError - Task not found"
+    },
+    {
+      "category": "表名不一致",
+      "document_value": "collection_stock_calendar",
+      "actual_value": "collection_trade_calendar",
+      "impact": "验证 SQL 执行失败，表不存在"
+    },
+    {
+      "category": "文档路径不存在",
+      "document_value": "references/collection/trade_calendar.md",
+      "actual_value": "references/collection/stock_calendar.md",
+      "impact": "无法读取任务文档，需手动查找正确文件"
+    }
+  ],
+  "root_cause": "项目正在进行 DDD 架构重构，命名从 stock_* 改为更语义化的名称（trade_calendar）",
+  "user_feedback": "测试指南暂时不用更新",
+  "fix_taken": "已修复代码（repo参数名、API方法名），文档未更新",
+  "tags": ["文档同步", "命名规范", "DDD重构"]
+}
