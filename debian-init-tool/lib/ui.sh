@@ -27,21 +27,44 @@ MENU_HEIGHT=${MENU_HEIGHT:-12}
 
 # 重置终端状态 (防止转义序列残留导致乱码)
 reset_terminal_state() {
-    printf '\033[?1049l'
-    printf '\033[22;0;0t'
-    printf '\033[1;63r'
-    printf '\033[4l'
-    printf '\033[?25l'
-    printf '\033(B'
-    printf '\033[m'
-    tput sgr0 2>/dev/null
-    stty sane 2>/dev/null
+    # 使用 reset 命令完全重置终端
+    # 但首先尝试软重置以避免清屏
+    printf '\033c' 2>/dev/null || true
+    
+    # 重置所有终端属性
+    tput reset 2>/dev/null || reset 2>/dev/null || true
+    
+    # 确保终端回到正常模式
+    stty sane 2>/dev/null || true
+    
+    # 清除任何残留的转义序列
+    printf '\033[0m\033[?25h\033[?7h' 2>/dev/null || true
 }
 
 # 初始化终端状态
 init_terminal() {
     reset_terminal_state
     check_whiptail
+}
+
+# 安全的 whiptail 包装函数
+# 用法: safe_whiptail [whiptail参数...]
+safe_whiptail() {
+    # 清理终端
+    clear 2>/dev/null || printf '\033[2J\033[H'
+    
+    # 执行 whiptail 并捕获输出
+    local output
+    local ret
+    output=$(whiptail "$@" 3>&1 1>&2 2>&3)
+    ret=$?
+    
+    # 清理 whiptail 可能留下的转义序列
+    printf '\033[0m\033[?25h\n'
+    
+    # 输出结果
+    echo "$output"
+    return $ret
 }
 
 # 已完成模块列表
@@ -77,7 +100,8 @@ draw_msgbox() {
     local height="${3:-$DIALOG_HEIGHT}"
     local width="${4:-$DIALOG_WIDTH}"
 
-    whiptail --title "$title" --msgbox "$message" "$height" "$width"
+    safe_whiptail --title "$title" --msgbox "$message" "$height" "$width"
+    return $?
 }
 
 # 显示确认框
@@ -87,7 +111,7 @@ draw_yesno() {
     local height="${3:-10}"
     local width="${4:-$DIALOG_WIDTH}"
 
-    whiptail --title "$title" --yesno "$message" "$height" "$width"
+    safe_whiptail --title "$title" --yesno "$message" "$height" "$width"
     return $?
 }
 
@@ -100,7 +124,7 @@ draw_inputbox() {
     local width="${5:-$DIALOG_WIDTH}"
 
     local result
-    result=$(whiptail --title "$title" --inputbox "$prompt" "$height" "$width" "$default" 3>&1 1>&2 2>&3)
+    result=$(safe_whiptail --title "$title" --inputbox "$prompt" "$height" "$width" "$default")
 
     local exit_status=$?
     if [[ $exit_status -eq 0 ]]; then
@@ -119,7 +143,7 @@ draw_passwordbox() {
     local width="${4:-$DIALOG_WIDTH}"
 
     local result
-    result=$(whiptail --title "$title" --passwordbox "$prompt" "$height" "$width" 3>&1 1>&2 2>&3)
+    result=$(safe_whiptail --title "$title" --passwordbox "$prompt" "$height" "$width")
 
     local exit_status=$?
     if [[ $exit_status -eq 0 ]]; then
@@ -141,9 +165,9 @@ draw_menu() {
     [[ $height -gt 30 ]] && height=30
 
     local result
-    result=$(whiptail --title "$title" --menu "$prompt" \
+    result=$(safe_whiptail --title "$title" --menu "$prompt" \
         "$height" "$DIALOG_WIDTH" "$MENU_HEIGHT" \
-        "${options[@]}" 3>&1 1>&2 2>&3)
+        "${options[@]}")
 
     local exit_status=$?
     if [[ $exit_status -eq 0 ]]; then
@@ -165,9 +189,9 @@ draw_checklist() {
     [[ $height -gt 30 ]] && height=30
 
     local result
-    result=$(whiptail --title "$title" --checklist "$prompt" \
+    result=$(safe_whiptail --title "$title" --checklist "$prompt" \
         "$height" "$DIALOG_WIDTH" "$MENU_HEIGHT" \
-        "${options[@]}" 3>&1 1>&2 2>&3)
+        "${options[@]}")
 
     local exit_status=$?
     if [[ $exit_status -eq 0 ]]; then
@@ -202,9 +226,9 @@ draw_radiolist() {
     [[ $height -gt 30 ]] && height=30
 
     local result
-    result=$(whiptail --title "$title" --radiolist "$prompt" \
+    result=$(safe_whiptail --title "$title" --radiolist "$prompt" \
         "$height" "$DIALOG_WIDTH" "$MENU_HEIGHT" \
-        "${processed_options[@]}" 3>&1 1>&2 2>&3)
+        "${processed_options[@]}")
 
     local exit_status=$?
     if [[ $exit_status -eq 0 ]]; then
@@ -221,8 +245,10 @@ show_gauge() {
     local message="$2"
     local percent="$3"
 
+    clear 2>/dev/null || printf '\033[2J\033[H'
     echo "$percent" | whiptail --title "$title" --gauge "$message" \
         "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0
+    printf '\033[0m\033[?25h\n'
 }
 
 # 显示等待消息
@@ -230,6 +256,7 @@ draw_waitbox() {
     local title="$1"
     local message="${2:-请稍候...}"
 
+    clear 2>/dev/null || printf '\033[2J\033[H'
     {
         for i in $(seq 1 100); do
             echo $i
@@ -246,7 +273,7 @@ draw_textbox() {
     local height="${3:-$DIALOG_HEIGHT}"
     local width="${4:-$DIALOG_WIDTH}"
 
-    whiptail --title "$title" --textbox "$filepath" "$height" "$width"
+    safe_whiptail --title "$title" --textbox "$filepath" "$height" "$width"
 }
 
 # 显示文件选择
@@ -256,8 +283,8 @@ draw_fileselect() {
     local filter="${3:-*}"
 
     local result
-    result=$(whiptail --title "$title" --fselect "$start_dir/$filter" \
-        "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 3>&1 1>&2 2>&3)
+    result=$(safe_whiptail --title "$title" --fselect "$start_dir/$filter" \
+        "$DIALOG_HEIGHT" "$DIALOG_WIDTH")
 
     local exit_status=$?
     if [[ $exit_status -eq 0 ]]; then

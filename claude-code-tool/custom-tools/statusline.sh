@@ -29,29 +29,49 @@ model=$(echo "$input" | jq -r '.model.display_name // "Unknown"')
 # --- Context ---
 used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
 
-# used = output_tokens / (context_size - non_msg_context) * 100
-# non_msg_context = context_size * used_percentage / 100 (当前上下文输入占用)
-# 等价于: output_tokens / (context_size * remaining_percentage / 100) * 100
-msg_used_pct=$(echo "$input" | jq -r '
+# used = output_tokens / (context_size - used_context - buffer) * 100
+# buffer 是 autocompact 触发前保留的空间 (约 15%)
+BUFFER_PCT=15
+msg_used_pct=$(echo "$input" | jq -r --argjson buf "$BUFFER_PCT" '
   if .context_window.total_output_tokens != null
      and .context_window.context_window_size != null
-     and .context_window.remaining_percentage != null
-     and .context_window.remaining_percentage > 0
-     and .context_window.total_output_tokens > 0 then
-    (.context_window.total_output_tokens * 10000 / (.context_window.context_window_size * .context_window.remaining_percentage) | floor)
+     and .context_window.remaining_percentage != null then
+    ((.context_window.remaining_percentage - $buf) * .context_window.context_window_size / 100) as $msg_cap |
+    if $msg_cap > 0 and .context_window.total_output_tokens > 0 then
+      [.context_window.total_output_tokens * 100 / $msg_cap | floor, 100] | min
+    else
+      empty
+    end
   else
     empty
   end
 ')
 
+# --- ANSI 颜色 ---
+R='\033[31m' G='\033[32m' Y='\033[33m' D='\033[0m'
+
 build_bar() {
-    local pct=$1
+    local pct=$1 color=$2
+    # 钳位到 0-100
+    [ "$pct" -lt 0 ] 2>/dev/null && pct=0
+    [ "$pct" -gt 100 ] 2>/dev/null && pct=100
     local filled=$((pct / 10))
     local empty=$((10 - filled))
     local bar=""
     for ((i = 0; i < filled; i++)); do bar+="█"; done
-    for ((i = 0; i < empty; i++)); do bar+="░"; done
-    echo "$bar"
+    for ((i = 0; i < empty; i++)); do  bar+="░"; done
+    echo -e "${color}${bar}${D}"
+}
+
+pick_ctx_color() {
+    [ "$1" -ge 70 ] 2>/dev/null && echo "$R" || echo "$G"
+}
+
+pick_msg_color() {
+    local p=$1
+    [ "$p" -ge 70 ] 2>/dev/null && { echo "$R"; return; }
+    [ "$p" -le 30 ] 2>/dev/null && { echo "$G"; return; }
+    echo "$Y"
 }
 
 # --- 组装: 目录 ▸ 模型 ▸ 上下文 ---
@@ -60,10 +80,14 @@ parts=()
 [ -n "$model" ] && parts+=("$model")
 
 if [ -n "$used_pct" ]; then
-    bar=$(build_bar "$used_pct")
-    ctx="$bar ${used_pct}%"
+    ctx_color=$(pick_ctx_color "$used_pct")
+    bar=$(build_bar "$used_pct" "$ctx_color")
+    ctx="${bar} ${ctx_color}${used_pct}%${D}"
+
     if [ -n "$msg_used_pct" ]; then
-        ctx="$ctx [ msg ▸ used ${msg_used_pct}% ]"
+        msg_color=$(pick_msg_color "$msg_used_pct")
+        msg_bar=$(build_bar "$msg_used_pct" "$msg_color")
+        ctx="${ctx} [ msg ${msg_bar} ${msg_color}${msg_used_pct}%${D} ]"
     fi
     parts+=("$ctx")
 fi
@@ -73,4 +97,4 @@ for part in "${parts[@]:1}"; do
     output="$output ▸ $part"
 done
 
-echo "$output"
+echo -e "$output"

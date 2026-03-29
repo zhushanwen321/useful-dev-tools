@@ -36,17 +36,28 @@ force_utf8_locale() {
 # 设置终端类型 (避免 whiptail 转义序列乱码)
 # ============================================
 set_term_type() {
+    # Debian 12 需要更保守的 TERM 设置
     if [[ -z "${TERM:-}" ]] || [[ "$TERM" == "dumb" ]]; then
-        export TERM=xterm-256color
+        export TERM=linux
     fi
     
-    # 检测是否支持 truecolor
-    if [[ -n "${COLORTERM:-}" ]] || [[ -n "${FORCE_COLOR:-}" ]]; then
-        export TERM=tmux-256color
-    fi
+    # 确保使用基本的终端类型以避免兼容性问题
+    case "$TERM" in
+        xterm*|tmux*|screen*)
+            # 保持原样，但确保基础功能
+            ;;
+        *)
+            export TERM=linux
+            ;;
+    esac
     
-    # 强制禁用某些会导致问题的终端模式
-    export NCURSES_NO_UTF8_ACS=0
+    # 禁用 ACS 字符集问题
+    export NCURSES_NO_UTF8_ACS=1
+    
+    # 确保终端大小被正确识别
+    if [[ -n "$LINES" ]] && [[ -n "$COLUMNS" ]]; then
+        stty rows "$LINES" cols "$COLUMNS" 2>/dev/null
+    fi
 }
 
 # 在最开始设置 locale
