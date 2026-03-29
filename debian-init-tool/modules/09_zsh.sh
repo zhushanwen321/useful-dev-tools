@@ -175,7 +175,10 @@ manual_install_omz() {
     local repo_url="https://gitee.com/mirrors/oh-my-zsh.git"
     local fallback_url="https://github.com/ohmyzsh/ohmyzsh.git"
 
-    if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$repo_url" "$omz_dir" 2>/dev/null; then
+    if GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$repo_url" "$omz_dir" 2>/dev/null; then
+        :
+    else
+        rm -rf "$omz_dir"
         if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$fallback_url" "$omz_dir" 2>/dev/null; then
             return 1
         fi
@@ -256,8 +259,10 @@ install_zsh_theme() {
             if [[ ! -d "$p10k_dir" ]]; then
                 log_info "安装 Powerlevel10k 主题..."
 
-                # 优先从 Gitee 克隆
-                if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "https://gitee.com/romkatv/powerlevel10k.git" "$p10k_dir" 2>/dev/null; then
+                if GIT_TERMINAL_PROMPT=0 git clone --depth=1 "https://gitee.com/romkatv/powerlevel10k.git" "$p10k_dir" 2>/dev/null; then
+                    :
+                else
+                    rm -rf "$p10k_dir"
                     GIT_TERMINAL_PROMPT=0 git clone --depth=1 "https://github.com/romkatv/powerlevel10k.git" "$p10k_dir" 2>/dev/null || true
                 fi
             fi
@@ -282,10 +287,13 @@ install_zsh_plugins() {
 
     mkdir -p "$custom_plugins"
 
-    # 插件仓库映射
-    declare -A plugin_repos=(
+    # 有 Gitee 镜像的插件（国内优先 Gitee）
+    declare -A gitee_mirrored_repos=(
         ["zsh-autosuggestions"]="zsh-users/zsh-autosuggestions"
         ["zsh-syntax-highlighting"]="zsh-users/zsh-syntax-highlighting"
+    )
+    # 无 Gitee 镜像的插件（仅 GitHub）
+    declare -A github_only_repos=(
         ["zsh-completions"]="zsh-users/zsh-completions"
         ["zsh-autopair"]="hlissner/zsh-autopair"
     )
@@ -297,31 +305,47 @@ install_zsh_plugins() {
             continue
         fi
 
-        # 检查是否需要从外部安装
-        if [[ -n "${plugin_repos[$plugin]}" ]]; then
-            local plugin_dir="${custom_plugins}/${plugin}"
+        local repo="" has_gitee_mirror=false
+        if [[ -n "${gitee_mirrored_repos[$plugin]}" ]]; then
+            repo="${gitee_mirrored_repos[$plugin]}"
+            has_gitee_mirror=true
+        elif [[ -n "${github_only_repos[$plugin]}" ]]; then
+            repo="${github_only_repos[$plugin]}"
+        else
+            continue
+        fi
 
-            if [[ -d "$plugin_dir" ]]; then
-                log_debug "插件 $plugin 已安装，更新..."
-                cd "$plugin_dir" && git pull 2>/dev/null
-            else
-                log_info "安装插件: $plugin..."
+        local plugin_dir="${custom_plugins}/${plugin}"
 
-                local repo="${plugin_repos[$plugin]}"
+        if [[ -d "$plugin_dir" ]]; then
+            log_debug "插件 $plugin 已安装，更新..."
+            cd "$plugin_dir" && git pull 2>/dev/null
+        else
+            log_info "安装插件: $plugin..."
+            local github_url="https://github.com/${repo}.git"
+
+            if $has_gitee_mirror; then
+                # 优先尝试 Gitee
                 local gitee_url="https://gitee.com/${repo}.git"
-                local github_url="https://github.com/${repo}.git"
-
-                # 优先尝试 Gitee (禁用交互式凭据提示，失败直接跳过)
-                if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$gitee_url" "$plugin_dir" 2>/dev/null; then
+                if GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$gitee_url" "$plugin_dir" 2>/dev/null; then
+                    log_debug "插件 $plugin 从 Gitee 安装成功"
+                else
+                    rm -rf "$plugin_dir"
+                    log_debug "Gitee 安装失败，尝试 GitHub..."
                     if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$github_url" "$plugin_dir" 2>/dev/null; then
                         log_warn "插件 $plugin 安装失败"
                         continue
                     fi
                 fi
+            else
+                if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$github_url" "$plugin_dir" 2>/dev/null; then
+                    log_warn "插件 $plugin 安装失败"
+                    continue
+                fi
             fi
-
-            chown -R "${user}:${user}" "$plugin_dir" 2>/dev/null
         fi
+
+        chown -R "${user}:${user}" "$plugin_dir" 2>/dev/null
     done
 
     log_info "插件安装完成"
@@ -345,10 +369,25 @@ generate_zshrc() {
         theme_config="powerlevel10k/powerlevel10k"
     fi
 
-    # 格式化插件列表
-    local plugins_config=""
+    # zsh-completions 需要通过 fpath 加载，不能放在 plugins=() 中
+    local has_completions=false
+    local filtered_plugins=""
     if [[ -n "$plugins" ]]; then
-        plugins_config=$(echo "$plugins" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//')
+        for p in $plugins; do
+            if [[ "$p" == "zsh-completions" ]]; then
+                has_completions=true
+            else
+                filtered_plugins+="$p "
+            fi
+        done
+        filtered_plugins=$(echo "$filtered_plugins" | sed 's/ $//')
+    fi
+
+    local completions_block=""
+    if $has_completions; then
+        completions_block="# zsh-completions 补全路径（必须在 source oh-my-zsh.sh 之前）
+fpath+=\${ZSH_CUSTOM:-\${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions/src
+autoload -U compinit && compinit"
     fi
 
     cat > "$zshrc_file" << EOF
@@ -361,8 +400,9 @@ export ZSH="${home_dir}/.oh-my-zsh"
 # 主题
 ZSH_THEME="${theme_config}"
 
+${completions_block}
 # 插件
-plugins=(${plugins_config})
+plugins=(${filtered_plugins})
 
 # Oh My Zsh 配置
 source \$ZSH/oh-my-zsh.sh
