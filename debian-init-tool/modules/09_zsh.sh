@@ -175,8 +175,8 @@ manual_install_omz() {
     local repo_url="https://gitee.com/mirrors/oh-my-zsh.git"
     local fallback_url="https://github.com/ohmyzsh/ohmyzsh.git"
 
-    if ! git clone --depth=1 "$repo_url" "$omz_dir" 2>/dev/null; then
-        if ! git clone --depth=1 "$fallback_url" "$omz_dir" 2>/dev/null; then
+    if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$repo_url" "$omz_dir" 2>/dev/null; then
+        if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$fallback_url" "$omz_dir" 2>/dev/null; then
             return 1
         fi
     fi
@@ -257,8 +257,8 @@ install_zsh_theme() {
                 log_info "安装 Powerlevel10k 主题..."
 
                 # 优先从 Gitee 克隆
-                if ! git clone --depth=1 "https://gitee.com/romkatv/powerlevel10k.git" "$p10k_dir" 2>/dev/null; then
-                    git clone --depth=1 "https://github.com/romkatv/powerlevel10k.git" "$p10k_dir" 2>/dev/null || true
+                if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "https://gitee.com/romkatv/powerlevel10k.git" "$p10k_dir" 2>/dev/null; then
+                    GIT_TERMINAL_PROMPT=0 git clone --depth=1 "https://github.com/romkatv/powerlevel10k.git" "$p10k_dir" 2>/dev/null || true
                 fi
             fi
             chown -R "${user}:${user}" "$p10k_dir" 2>/dev/null
@@ -311,10 +311,9 @@ install_zsh_plugins() {
                 local gitee_url="https://gitee.com/${repo}.git"
                 local github_url="https://github.com/${repo}.git"
 
-                # 优先尝试 Gitee
-                if ! git clone --depth=1 "$gitee_url" "$plugin_dir" 2>/dev/null; then
-                    # 失败则尝试 GitHub
-                    if ! git clone --depth=1 "$github_url" "$plugin_dir" 2>/dev/null; then
+                # 优先尝试 Gitee (禁用交互式凭据提示，失败直接跳过)
+                if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$gitee_url" "$plugin_dir" 2>/dev/null; then
+                    if ! GIT_TERMINAL_PROMPT=0 git clone --depth=1 "$github_url" "$plugin_dir" 2>/dev/null; then
                         log_warn "插件 $plugin 安装失败"
                         continue
                     fi
