@@ -50,8 +50,8 @@ init_terminal() {
 # 安全的 whiptail 包装函数
 # 用法: safe_whiptail [whiptail参数...]
 safe_whiptail() {
-    # 清理终端
-    clear 2>/dev/null || printf '\033[2J\033[H'
+    # 清理终端 - 输出到 stderr 避免污染返回值
+    clear 2>/dev/null || printf '\033[2J\033[H' >&2
     
     # 执行 whiptail 并捕获输出
     local output
@@ -59,10 +59,10 @@ safe_whiptail() {
     output=$(whiptail "$@" 3>&1 1>&2 2>&3)
     ret=$?
     
-    # 清理 whiptail 可能留下的转义序列
-    printf '\033[0m\033[?25h\n'
+    # 清理 whiptail 可能留下的转义序列 - 输出到 stderr
+    printf '\033[0m\033[?25h\n' >&2
     
-    # 输出结果
+    # 输出结果 (只输出 whiptail 的返回值)
     echo "$output"
     return $ret
 }
