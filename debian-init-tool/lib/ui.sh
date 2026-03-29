@@ -16,7 +16,7 @@ fi
 # 检查 whiptail 是否可用
 check_whiptail() {
     if ! command_exists whiptail; then
-        apt-get update && apt-get install -y whiptail
+        apt-get update && apt-get install -y whiptail ncurses-base
     fi
 }
 
@@ -24,6 +24,25 @@ check_whiptail() {
 DIALOG_HEIGHT=${DIALOG_HEIGHT:-20}
 DIALOG_WIDTH=${DIALOG_WIDTH:-70}
 MENU_HEIGHT=${MENU_HEIGHT:-12}
+
+# 重置终端状态 (防止转义序列残留导致乱码)
+reset_terminal_state() {
+    printf '\033[?1049l'
+    printf '\033[22;0;0t'
+    printf '\033[1;63r'
+    printf '\033[4l'
+    printf '\033[?25l'
+    printf '\033(B'
+    printf '\033[m'
+    tput sgr0 2>/dev/null
+    stty sane 2>/dev/null
+}
+
+# 初始化终端状态
+init_terminal() {
+    reset_terminal_state
+    check_whiptail
+}
 
 # 已完成模块列表
 declare -A COMPLETED_MODULES=()

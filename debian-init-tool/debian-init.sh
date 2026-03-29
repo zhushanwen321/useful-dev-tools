@@ -32,8 +32,28 @@ force_utf8_locale() {
     export LANGUAGE="en_US:en"
 }
 
+# ============================================
+# 设置终端类型 (避免 whiptail 转义序列乱码)
+# ============================================
+set_term_type() {
+    if [[ -z "${TERM:-}" ]] || [[ "$TERM" == "dumb" ]]; then
+        export TERM=xterm-256color
+    fi
+    
+    # 检测是否支持 truecolor
+    if [[ -n "${COLORTERM:-}" ]] || [[ -n "${FORCE_COLOR:-}" ]]; then
+        export TERM=tmux-256color
+    fi
+    
+    # 强制禁用某些会导致问题的终端模式
+    export NCURSES_NO_UTF8_ACS=0
+}
+
 # 在最开始设置 locale
 force_utf8_locale
+
+# 设置终端类型
+set_term_type
 
 # 版本信息
 VERSION="1.0.0"
@@ -269,6 +289,9 @@ run_auto_mode() {
 run_interactive_mode() {
     # 初始化日志
     init_log
+    
+    # 初始化终端状态
+    init_terminal
 
     # 运行前置检查
     if ! run_module "preflight"; then
