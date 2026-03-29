@@ -2,6 +2,82 @@
 # Zsh 配置模块
 # 安装和配置 Zsh、Oh My Zsh 和插件
 
+# 综合选择页：将主题、插件、默认 Shell 合并到一个 whiptail checklist
+select_zsh_all_in_one() {
+    local items=(
+        # 主题区域
+        "powerlevel10k" "[主题] Powerlevel10k (推荐)" "ON"
+        "agnoster"      "[主题] Agnoster (经典箭头)"  "OFF"
+        "robbyrussell"  "[主题] Robbyrussell (默认)"  "OFF"
+        "simple"        "[主题] Simple (简洁)"         "OFF"
+
+        # 内置插件
+        "git"              "Git 别名和补全"        "ON"
+        "sudo"             "双击 ESC 添加 sudo"    "ON"
+        "colored-man-pages" "彩色 man 页面"        "ON"
+        "colorize"         "语法高亮 cat"          "OFF"
+        "copypath"         "复制当前路径"           "OFF"
+        "copyfile"         "复制文件内容"           "OFF"
+        "dirhistory"       "目录历史导航"           "OFF"
+        "dotenv"           "自动加载 .env"         "OFF"
+        "history"          "历史命令别名"           "OFF"
+        "web-search"       "命令行搜索"            "OFF"
+
+        # 第三方插件
+        "zsh-autosuggestions"       "命令自动建议"     "ON"
+        "zsh-syntax-highlighting"   "命令语法高亮"     "ON"
+        "zsh-completions"           "扩展补全"        "OFF"
+        "zsh-autopair"              "括号自动配对"     "OFF"
+
+        # 其他选项
+        "set-as-default-shell"      "设为默认 Shell"   "ON"
+    )
+
+    local result
+    result=$(safe_whiptail --title "Zsh 配置" --checklist \
+        "选择主题(一个)、插件和选项 (空格切换，回车确认):" \
+        26 65 16 "${items[@]}" 3>&1 1>&2 2>&3 | tr -d '"')
+
+    echo "$result"
+}
+
+# 解析综合选择结果，分离出主题、插件、默认 Shell
+parse_zsh_selections() {
+    local selections="$1"
+
+    local theme=""
+    local plugins=()
+    local set_default_shell=false
+
+    # 已知的主题选项
+    local themes=("powerlevel10k" "agnoster" "robbyrussell" "simple")
+
+    for item in $selections; do
+        local is_theme=false
+        for t in "${themes[@]}"; do
+            if [[ "$item" == "$t" ]]; then
+                theme="$item"
+                is_theme=true
+                break
+            fi
+        done
+
+        if ! $is_theme && [[ "$item" == "set-as-default-shell" ]]; then
+            set_default_shell=true
+        elif ! $is_theme; then
+            plugins+=("$item")
+        fi
+    done
+
+    # 未选择主题时默认 robbyrussell
+    theme="${theme:-robbyrussell}"
+
+    # 通过全局变量返回解析结果
+    ZSH_SELECTED_THEME="$theme"
+    ZSH_SELECTED_PLUGINS="${plugins[*]}"
+    ZSH_SET_DEFAULT_SHELL="$set_default_shell"
+}
+
 configure_zsh() {
     log_info "开始配置 Zsh..."
 
@@ -10,7 +86,7 @@ configure_zsh() {
         return 1
     fi
 
-    # 2. 选择目标用户
+    # 2. 选择目标用户（此页面不可避免）
     local target_user
     target_user=$(select_zsh_target_user)
 
@@ -26,50 +102,50 @@ configure_zsh() {
         return 1
     fi
 
-    # 4. 选择主题
-    local theme
-    theme=$(select_zsh_theme)
+    # 4. 综合选择页：主题 + 插件 + 默认 Shell（单页完成）
+    local selections
+    selections=$(select_zsh_all_in_one)
 
-    # 5. 选择插件
-    local plugins
-    plugins=$(select_zsh_plugins)
-
-    # 6. 确认配置
-    local confirm_msg="将为用户 $target_user 配置 Zsh:\n\n"
-    confirm_msg+="主题: ${theme}\n"
-    confirm_msg+="插件: ${plugins:-无}\n\n"
-    confirm_msg+="是否继续？"
-
-    if ! draw_yesno "确认配置" "$confirm_msg"; then
+    if [[ $? -ne 0 ]]; then
         return 1
     fi
 
-    # 7. 安装主题
+    # 5. 解析选择结果
+    parse_zsh_selections "$selections"
+
+    local theme="$ZSH_SELECTED_THEME"
+    local plugins="$ZSH_SELECTED_PLUGINS"
+
+    # 6. 安装主题
     if ! install_zsh_theme "$theme" "$target_user" "$home_dir"; then
         log_warn "主题安装可能存在问题"
     fi
 
-    # 8. 安装插件
+    # 7. 安装插件
     if [[ -n "$plugins" ]]; then
         install_zsh_plugins "$plugins" "$target_user" "$home_dir"
     fi
 
-    # 9. 生成 .zshrc
+    # 8. 生成 .zshrc
     generate_zshrc "$target_user" "$home_dir" "$theme" "$plugins"
 
-    # 10. 设置为默认 shell
-    if draw_yesno "默认 Shell" "是否将 Zsh 设置为用户 $target_user 的默认 Shell？"; then
+    # 9. 设置为默认 shell（根据综合选择页的勾选决定）
+    if $ZSH_SET_DEFAULT_SHELL; then
         chsh -s /bin/zsh "$target_user"
     fi
 
-    # 11. 添加代理函数
+    # 10. 添加代理函数
     add_zsh_proxy_functions "$home_dir"
 
     # 确保所有文件归属正确
     chown -R "${target_user}:${target_user}" "${home_dir}/.oh-my-zsh" 2>/dev/null
     chown "${target_user}:${target_user}" "${home_dir}/.zshrc" 2>/dev/null
 
-    draw_msgbox "成功" "Zsh 配置完成！\n\n主题: ${theme}\n插件: ${plugins:-无}\n\n请用户 $target_user 重新登录或执行:\nzsh"
+    # 11. 成功提示
+    local default_shell_info=""
+    $ZSH_SET_DEFAULT_SHELL && default_shell_info="\n已设为默认 Shell"
+
+    draw_msgbox "成功" "Zsh 配置完成！\n\n主题: ${theme}\n插件: ${plugins:-无}${default_shell_info}\n\n请用户 $target_user 重新登录或执行:\nzsh"
 
     return 0
 }
@@ -191,55 +267,6 @@ manual_install_omz() {
 
     chown -R "${user}:${user}" "$omz_dir" "${home_dir}/.zshrc"
     return 0
-}
-
-# 选择主题
-select_zsh_theme() {
-    local themes=(
-        "powerlevel10k" "Powerlevel10k (推荐，功能丰富)" "ON"
-        "agnoster" "Agnoster (经典箭头主题)" "OFF"
-        "robbyrussell" "Robbyrussell (Oh My Zsh 默认)" "OFF"
-        "simple" "Simple (简洁)" "OFF"
-    )
-
-    local result
-    result=$(whiptail --title "选择主题" --radiolist \
-        "选择 Zsh 主题:" \
-        14 55 5 "${themes[@]}" 3>&1 1>&2 2>&3)
-
-    echo "${result:-robbyrussell}"
-}
-
-# 选择插件
-select_zsh_plugins() {
-    local builtin_plugins=(
-        "git" "Git 别名和补全" "ON"
-        "sudo" "双击 ESC 添加 sudo" "ON"
-        "colored-man-pages" "彩色 man 页面" "ON"
-        "colorize" "语法高亮 cat" "OFF"
-        "copypath" "复制当前路径" "OFF"
-        "copyfile" "复制文件内容" "OFF"
-        "dirhistory" "目录历史导航" "OFF"
-        "dotenv" "自动加载 .env" "OFF"
-        "history" "历史命令别名" "OFF"
-        "web-search" "命令行搜索" "OFF"
-    )
-
-    local third_party_plugins=(
-        "zsh-autosuggestions" "命令自动建议" "ON"
-        "zsh-syntax-highlighting" "命令语法高亮" "ON"
-        "zsh-completions" "扩展补全" "OFF"
-        "zsh-autopair" "括号自动配对" "OFF"
-    )
-
-    local all_plugins=("${builtin_plugins[@]}" "${third_party_plugins[@]}")
-
-    local result
-    result=$(whiptail --title "选择插件" --checklist \
-        "选择要安装的 Zsh 插件:" \
-        22 60 12 "${all_plugins[@]}" 3>&1 1>&2 2>&3 | tr -d '"')
-
-    echo "$result"
 }
 
 # 安装主题

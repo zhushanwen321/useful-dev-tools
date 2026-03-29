@@ -36,17 +36,17 @@ configure_preflight() {
         apt-get install -y "${missing_tools[@]}"
     fi
 
-    # 4. 检测网络连接
-    draw_msgbox "网络检测" "正在检测网络连接..."
-
+    # 4. 检测网络连接（正常时静默，异常时才弹出交互）
+    log_info "检测网络连接..."
     if ! test_network_connection; then
+        log_warn "网络连接异常"
         if draw_yesno "网络问题" "无法连接到网络。\n\n是否需要配置代理？"; then
             interactive_configure_proxy || return 1
         else
-            draw_msgbox "警告" "网络连接异常，部分功能可能无法正常工作"
+            log_warn "网络连接异常，部分功能可能无法正常工作"
         fi
     else
-        draw_msgbox "网络正常" "网络连接正常"
+        log_info "网络连接正常"
     fi
 
     # 5. 创建工作目录

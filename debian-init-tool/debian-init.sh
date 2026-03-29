@@ -296,11 +296,41 @@ run_auto_mode() {
     return ${#failed_modules[@]}
 }
 
+# 打印退出会话摘要
+print_exit_summary() {
+    fini_log
+
+    echo ""
+    echo "========================================"
+    echo "  Debian Init Tool - 会话结束"
+    echo "========================================"
+    echo "  日志文件: $LOG_FILE"
+    echo "  查看日志: tail -50 $LOG_FILE"
+    echo "========================================"
+
+    local completed_count=0
+    for module in "${!COMPLETED_MODULES[@]}"; do
+        ((completed_count++))
+    done
+
+    if [[ $completed_count -gt 0 ]]; then
+        echo "  已完成 $completed_count 个模块:"
+        for module in "${!COMPLETED_MODULES[@]}"; do
+            echo "    - $module (${COMPLETED_MODULES[$module]})"
+        done
+    else
+        echo "  未完成任何模块"
+    fi
+
+    echo "========================================"
+    echo ""
+}
+
 # 交互模式运行
 run_interactive_mode() {
     # 初始化日志
     init_log
-    
+
     # 初始化终端状态
     init_terminal
 
@@ -312,6 +342,9 @@ run_interactive_mode() {
 
     # 显示主菜单
     draw_main_menu
+
+    # 退出时打印会话摘要（whiptail 已释放终端，输出可见）
+    print_exit_summary
 }
 
 # 恢复备份
