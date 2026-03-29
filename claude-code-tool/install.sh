@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$SCRIPT_DIR"
 
-ITEMS=("agents" "commands" "skills" "CLAUDE.md")
+ITEMS=("agents" "commands" "skills" "custom-tools" "CLAUDE.md")
 
 echo "=== Claude Code Tool 安装脚本 ==="
 echo "项目路径: $CLAUDE_DIR"
@@ -82,11 +82,44 @@ install_for_home() {
     echo "备份文件位置: $BACKUP_DIR"
 }
 
+configure_statusline() {
+    local SETTINGS="$CLAUDE_HOME/settings.json"
+    local COMMAND="\"\$HOME/.claude/custom-tools/statusline.sh\""
+
+    echo "--- 配置 statusline ---"
+
+    if ! command -v jq &>/dev/null; then
+        echo "  ! jq 未安装，跳过 statusline 配置"
+        echo "  提示: 安装 jq 后重新运行此脚本"
+        return
+    fi
+
+    if [ ! -f "$SETTINGS" ]; then
+        echo "  + 创建 settings.json"
+        echo "{\"statusLine\":{\"type\":\"command\",\"command\":$COMMAND}}" | jq . > "$SETTINGS"
+        return
+    fi
+
+    local CURRENT
+    CURRENT=$(jq -r '.statusLine.command // empty' "$SETTINGS")
+
+    if [ "$CURRENT" = "$COMMAND" ]; then
+        echo "  ✓ statusline 已配置，跳过"
+        return
+    fi
+
+    echo "  + 更新 statusline 配置: $COMMAND"
+    local TMP
+    TMP=$(mktemp)
+    jq --arg cmd "$COMMAND" '.statusLine = {"type": "command", "command": $cmd}' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
+}
+
 HAD_WORK=false
 
 if [ -d "$CLAUDE_HOME" ]; then
     HAD_WORK=true
     install_for_home "$CLAUDE_HOME" "~/.claude"
+    configure_statusline
 fi
 
 if [ -d "$OPENCODE_HOME" ]; then
