@@ -29,18 +29,17 @@ model=$(echo "$input" | jq -r '.model.display_name // "Unknown"')
 # --- Context ---
 used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
 
-# used = output_tokens / (context_size - used_context - buffer) * 100
-# buffer 是 autocompact 触发前保留的空间 (约 15%)
-BUFFER_PCT=15
-msg_used_pct=$(echo "$input" | jq -r --argjson buf "$BUFFER_PCT" '
-  if .context_window.total_output_tokens != null
-     and .context_window.context_window_size != null
-     and .context_window.remaining_percentage != null then
-    ((.context_window.remaining_percentage - $buf) * .context_window.context_window_size / 100) as $msg_cap |
-    if $msg_cap > 0 and .context_window.total_output_tokens > 0 then
-      [.context_window.total_output_tokens * 100 / $msg_cap | floor, 100] | min
+# load = 已用空间 / 可用空间(扣除 autocompact buffer) * 100
+# 当 load = 100% 时 autocompact 触发
+# total_output_tokens 是累计计数器(压缩后不减少), 不能用于当前上下文计算
+BUFFER_PCT=16
+load_pct=$(echo "$input" | jq -r --argjson buf "$BUFFER_PCT" '
+  if .context_window.used_percentage != null then
+    (100 - $buf) as $usable |
+    if $usable > 0 then
+      [.context_window.used_percentage * 100 / $usable | floor, 100] | min
     else
-      empty
+      100
     end
   else
     empty
@@ -52,7 +51,6 @@ R='\033[31m' G='\033[32m' Y='\033[33m' D='\033[0m'
 
 build_bar() {
     local pct=$1 color=$2
-    # 钳位到 0-100
     [ "$pct" -lt 0 ] 2>/dev/null && pct=0
     [ "$pct" -gt 100 ] 2>/dev/null && pct=100
     local filled=$((pct / 10))
@@ -67,7 +65,7 @@ pick_ctx_color() {
     [ "$1" -ge 70 ] 2>/dev/null && echo "$R" || echo "$G"
 }
 
-pick_msg_color() {
+pick_load_color() {
     local p=$1
     [ "$p" -ge 70 ] 2>/dev/null && { echo "$R"; return; }
     [ "$p" -le 30 ] 2>/dev/null && { echo "$G"; return; }
@@ -84,10 +82,10 @@ if [ -n "$used_pct" ]; then
     bar=$(build_bar "$used_pct" "$ctx_color")
     ctx="${bar} ${ctx_color}${used_pct}%${D}"
 
-    if [ -n "$msg_used_pct" ]; then
-        msg_color=$(pick_msg_color "$msg_used_pct")
-        msg_bar=$(build_bar "$msg_used_pct" "$msg_color")
-        ctx="${ctx} [ msg ${msg_bar} ${msg_color}${msg_used_pct}%${D} ]"
+    if [ -n "$load_pct" ]; then
+        load_color=$(pick_load_color "$load_pct")
+        load_bar=$(build_bar "$load_pct" "$load_color")
+        ctx="${ctx} [ load ${load_bar} ${load_color}${load_pct}%${D} ]"
     fi
     parts+=("$ctx")
 fi

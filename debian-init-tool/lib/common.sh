@@ -305,5 +305,13 @@ show_progress() {
     [[ $current -eq $total ]] && echo ""
 }
 
+# 清除字符串中的 ANSI 转义序列
+# 防止终端控制字符污染变量值
+strip_ansi() {
+    local input="${1:-}"
+    # 匹配 ESC 开头的 CSI 序列 (ESC [ ... m/J/K/H 等) 和其他常见转义
+    printf '%s' "$input" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b[()][AB012]//g; s/\x1bc//g'
+}
+
 # 标记库已加载
 _COMMON_SH_LOADED=true

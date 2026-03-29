@@ -29,16 +29,16 @@ MENU_HEIGHT=${MENU_HEIGHT:-12}
 reset_terminal_state() {
     # 使用 reset 命令完全重置终端
     # 但首先尝试软重置以避免清屏
-    printf '\033c' 2>/dev/null || true
-    
+    printf '\033c' >/dev/tty 2>/dev/null || true
+
     # 重置所有终端属性
-    tput reset 2>/dev/null || reset 2>/dev/null || true
-    
+    tput reset >/dev/tty 2>/dev/null || reset >/dev/tty 2>/dev/null || true
+
     # 确保终端回到正常模式
     stty sane 2>/dev/null || true
-    
+
     # 清除任何残留的转义序列
-    printf '\033[0m\033[?25h\033[?7h' 2>/dev/null || true
+    printf '\033[0m\033[?25h\033[?7h' >/dev/tty 2>/dev/null || true
 }
 
 # 初始化终端状态
@@ -50,20 +50,24 @@ init_terminal() {
 # 安全的 whiptail 包装函数
 # 用法: safe_whiptail [whiptail参数...]
 safe_whiptail() {
-    # 清理终端 - 输出到 stderr 避免污染返回值
-    clear 2>/dev/null || printf '\033[2J\033[H' >&2
-    
+    # 清理终端 - 使用 /dev/tty 直接输出到终端，避免污染 stdout/stderr
+    clear >/dev/tty 2>/dev/null || printf '\033[2J\033[H' >/dev/tty 2>/dev/null || true
+
     # 执行 whiptail 并捕获输出
+    # 注意: fd swap (3>&1 1>&2 2>&3) 会同时捕获 whiptail 的终端恢复序列，
+    # 所以必须在返回前清理
     local output
     local ret
     output=$(whiptail "$@" 3>&1 1>&2 2>&3)
     ret=$?
-    
-    # 清理 whiptail 可能留下的转义序列 - 输出到 stderr
-    printf '\033[0m\033[?25h\n' >&2
-    
-    # 输出结果 (只输出 whiptail 的返回值)
-    echo "$output"
+
+    # 清理 whiptail 可能留下的转义序列 - 使用 /dev/tty 直接输出到终端
+    printf '\033[0m\033[?25h\n' >/dev/tty 2>/dev/null || true
+
+    # 清除 output 中可能混入的 ANSI 转义序列，只保留用户选择
+    output=$(strip_ansi "$output")
+
+    printf '%s' "$output"
     return $ret
 }
 
@@ -245,10 +249,10 @@ show_gauge() {
     local message="$2"
     local percent="$3"
 
-    clear 2>/dev/null || printf '\033[2J\033[H'
+    clear >/dev/tty 2>/dev/null || printf '\033[2J\033[H' >/dev/tty 2>/dev/null || true
     echo "$percent" | whiptail --title "$title" --gauge "$message" \
-        "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0
-    printf '\033[0m\033[?25h\n'
+        "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 >/dev/tty 2>/dev/null
+    printf '\033[0m\033[?25h\n' >/dev/tty 2>/dev/null || true
 }
 
 # 显示等待消息
@@ -256,14 +260,14 @@ draw_waitbox() {
     local title="$1"
     local message="${2:-请稍候...}"
 
-    clear 2>/dev/null || printf '\033[2J\033[H'
+    clear >/dev/tty 2>/dev/null || printf '\033[2J\033[H' >/dev/tty 2>/dev/null || true
     {
         for i in $(seq 1 100); do
             echo $i
             sleep 0.05
         done
     } | whiptail --title "$title" --gauge "$message" \
-        "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 &
+        "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 >/dev/tty 2>/dev/null &
 }
 
 # 显示滚动文本
@@ -351,7 +355,8 @@ draw_main_menu() {
 
 # 运行单个模块 (交互模式)
 run_module() {
-    local module="$1"
+    local module
+    module=$(strip_ansi "$1")
     local module_file="${_UI_SCRIPT_DIR}/../modules/$(printf '%02d' $(get_module_index "$module"))_${module}.sh"
 
     if [[ -f "$module_file" ]]; then
@@ -416,7 +421,8 @@ run_all_modules() {
 
 # 静默运行模块
 run_module_silent() {
-    local module="$1"
+    local module
+    module=$(strip_ansi "$1")
     local module_file="${_UI_SCRIPT_DIR}/../modules/$(printf '%02d' $(get_module_index "$module"))_${module}.sh"
 
     if [[ -f "$module_file" ]]; then
