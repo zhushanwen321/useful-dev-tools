@@ -2,10 +2,6 @@
 # Zsh 配置模块
 # 安装和配置 Zsh、Oh My Zsh 和插件
 
-# Oh My Zsh 安装路径
-OH_MY_ZSH_DIR="${OH_MY_ZSH_DIR:-/usr/share/oh-my-zsh}"
-ZSH_CUSTOM="${ZSH_CUSTOM:-${OH_MY_ZSH_DIR}/custom}"
-
 configure_zsh() {
     log_info "开始配置 Zsh..."
 
@@ -69,8 +65,9 @@ configure_zsh() {
     # 11. 添加代理函数
     add_zsh_proxy_functions "$home_dir"
 
-    # 设置权限
-    chown -R "${target_user}:${target_user}" "${home_dir}/.zshrc" "${home_dir}/.oh-my-zsh" 2>/dev/null
+    # 确保所有文件归属正确
+    chown -R "${target_user}:${target_user}" "${home_dir}/.oh-my-zsh" 2>/dev/null
+    chown "${target_user}:${target_user}" "${home_dir}/.zshrc" 2>/dev/null
 
     draw_msgbox "成功" "Zsh 配置完成！\n\n主题: ${theme}\n插件: ${plugins:-无}\n\n请用户 $target_user 重新登录或执行:\nzsh"
 
@@ -101,19 +98,17 @@ install_zsh() {
 select_zsh_target_user() {
     local users=()
 
-    while IFS=: read -r username _ uid _ _ _ _; do
+    # root 用户始终可选
+    users+=("root" "Root 用户 (uid=0)")
+
+    while IFS=: read -r username _ uid _ _ home _; do
         if [[ $uid -ge 1000 ]] && [[ $uid -lt 65534 ]]; then
-            users+=("$username" "普通用户")
+            users+=("$username" "普通用户 ($home)")
         fi
     done < /etc/passwd
 
-    if [[ ${#users[@]} -eq 0 ]]; then
-        draw_msgbox "错误" "没有找到普通用户，请先创建用户"
-        return 1
-    fi
-
     whiptail --title "选择用户" --menu "选择要配置 Zsh 的用户:" \
-        15 40 8 "${users[@]}" 3>&1 1>&2 2>&3
+        15 50 8 "${users[@]}" 3>&1 1>&2 2>&3
 }
 
 # 安装 Oh My Zsh
@@ -146,9 +141,12 @@ install_oh_my_zsh() {
     fi
 
     if [[ -n "$install_script" ]]; then
-        # 使用 RUNZSH=no 防止自动启动 zsh
-        # 使用 CHSH=no 防止自动修改 shell
-        RUNZSH=no CHSH=no sh -c "$install_script" "" --unattended
+        # 设置 ZSH 和 HOME 确保安装到目标用户的 home 目录
+        # Oh My Zsh 安装脚本依据 $ZSH 决定安装路径，依据 $HOME 决定 .zshrc 路径
+        RUNZSH=no CHSH=no \
+            ZSH="$omz_dir" \
+            HOME="$home_dir" \
+            sh -c "$install_script" "" --unattended
 
         if [[ $? -eq 0 ]] && [[ -d "$omz_dir" ]]; then
             log_info "Oh My Zsh 安装成功"
@@ -380,9 +378,6 @@ SAVEHIST=10000
 setopt HIST_IGNORE_DUPS
 setopt HIST_IGNORE_SPACE
 
-# 自动补全
-autoload -Uz compinit && compinit
-
 # 别名
 alias ll='ls -alF'
 alias la='ls -A'
@@ -419,6 +414,10 @@ myip() {
 }
 
 EOF
+
+    # 确保文件权限正确
+    chmod 644 "$zshrc_file"
+    chown "${user}:${user}" "$zshrc_file"
 
     log_info ".zshrc 已生成"
 }

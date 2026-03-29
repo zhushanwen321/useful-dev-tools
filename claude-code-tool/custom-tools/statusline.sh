@@ -26,23 +26,17 @@ fi
 # --- 模型 ---
 model=$(echo "$input" | jq -r '.model.display_name // "Unknown"')
 
-# --- Context ---
-used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+# --- Context (null 统一降级为 0, 保证始终展示) ---
+used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
 
-# load = 已用空间 / 可用空间(扣除 autocompact buffer) * 100
-# 当 load = 100% 时 autocompact 触发
-# total_output_tokens 是累计计数器(压缩后不减少), 不能用于当前上下文计算
 BUFFER_PCT=16
 load_pct=$(echo "$input" | jq -r --argjson buf "$BUFFER_PCT" '
-  if .context_window.used_percentage != null then
-    (100 - $buf) as $usable |
-    if $usable > 0 then
-      [.context_window.used_percentage * 100 / $usable | floor, 100] | min
-    else
-      100
-    end
+  (.context_window.used_percentage // 0) as $used |
+  (100 - $buf) as $usable |
+  if $usable > 0 then
+    [$used * 100 / $usable | floor, 100] | min
   else
-    empty
+    100
   end
 ')
 
@@ -77,18 +71,16 @@ parts=()
 [ -n "$dir_display" ] && parts+=("$dir_display")
 [ -n "$model" ] && parts+=("$model")
 
-if [ -n "$used_pct" ]; then
-    ctx_color=$(pick_ctx_color "$used_pct")
-    bar=$(build_bar "$used_pct" "$ctx_color")
-    ctx="${bar} ${ctx_color}${used_pct}%${D}"
+# 始终展示 ctx 和 load 进度条
+ctx_color=$(pick_ctx_color "$used_pct")
+bar=$(build_bar "$used_pct" "$ctx_color")
+ctx="${bar} ${ctx_color}${used_pct}%${D}"
 
-    if [ -n "$load_pct" ]; then
-        load_color=$(pick_load_color "$load_pct")
-        load_bar=$(build_bar "$load_pct" "$load_color")
-        ctx="${ctx} [ load ${load_bar} ${load_color}${load_pct}%${D} ]"
-    fi
-    parts+=("$ctx")
-fi
+load_color=$(pick_load_color "$load_pct")
+load_bar=$(build_bar "$load_pct" "$load_color")
+ctx="${ctx} [ load ${load_bar} ${load_color}${load_pct}%${D} ]"
+
+parts+=("$ctx")
 
 output="${parts[0]}"
 for part in "${parts[@]:1}"; do
