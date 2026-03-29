@@ -2,11 +2,12 @@
 
 input=$(cat)
 
-# --- ANSI 颜色（必须在最前面定义） ---
-R='\033[31m' G='\033[32m' Y='\033[33m' D='\033[0m'
+# --- ANSI Colors ---
+R='\033[31m' G='\033[32m' Y='\033[33m' B='\033[34m' M='\033[35m' C='\033[36m' W='\033[37m' D='\033[0m'
+# Bold variants
+BG='\033[1;32m' BY='\033[1;33m' BB='\033[1;34m' BC='\033[1;36m'
 
-# --- 进度条函数（文字嵌入中间，背景色填充） ---
-# $1=百分比, $2=自定义文字（可选，默认 " 35%"）
+# --- Progress bar (text embedded, background filled) ---
 build_bar() {
     local pct=$1
     local text="${2:-$(printf "%3d%%" "$pct")}"
@@ -18,7 +19,6 @@ build_bar() {
     local tstart=$(( (total - text_len) / 2 ))
     local filled=$((pct * total / 100))
 
-    # 根据用量选填充背景色
     local fill_bg
     if [ "$pct" -ge 70 ]; then fill_bg='\033[41m'
     elif [ "$pct" -ge 40 ]; then fill_bg='\033[43m'
@@ -43,10 +43,49 @@ build_bar() {
     echo -e "${bar}${D}"
 }
 
-# --- 目录: 项目根名称 + 相对路径 ---
-project_dir=$(echo "$input" | jq -r '.workspace.project_dir // empty')
-current_dir=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // empty')
+# --- Format duration (ms -> readable) ---
+format_duration() {
+    local ms=$1
+    local total_sec=$((ms / 1000))
+    local hours=$((total_sec / 3600))
+    local mins=$(((total_sec % 3600) / 60))
+    local secs=$((total_sec % 60))
 
+    if [ $hours -gt 0 ]; then
+        printf "%dh%dm" $hours $mins
+    elif [ $mins -gt 0 ]; then
+        printf "%dm%ds" $mins $secs
+    else
+        printf "%ds" $secs
+    fi
+}
+
+# --- Parse input JSON (single parse) ---
+parsed=$(echo "$input" | jq -c '{
+    project_dir: .workspace.project_dir,
+    current_dir: (.workspace.current_dir // .cwd),
+    model: .model.display_name,
+    used_pct: (.context_window.used_percentage // 0),
+    agent: .agent.name,
+    worktree_name: .worktree.name,
+    worktree_branch: .worktree.branch,
+    total_duration_ms: .cost.total_duration_ms,
+    session_id: .session_id,
+    transcript_path: .transcript_path
+}')
+
+project_dir=$(echo "$parsed" | jq -r '.project_dir // empty')
+current_dir=$(echo "$parsed" | jq -r '.current_dir // empty')
+model=$(echo "$parsed" | jq -r '.model // "Unknown"')
+used_pct=$(echo "$parsed" | jq -r '.used_pct // 0')
+agent_name=$(echo "$parsed" | jq -r '.agent // empty')
+worktree_name=$(echo "$parsed" | jq -r '.worktree_name // empty')
+worktree_branch=$(echo "$parsed" | jq -r '.worktree_branch // empty')
+total_duration_ms=$(echo "$parsed" | jq -r '.total_duration_ms // 0')
+session_id=$(echo "$parsed" | jq -r '.session_id // empty')
+transcript_path=$(echo "$parsed" | jq -r '.transcript_path // empty')
+
+# --- Directory display: project name + relative path ---
 dir_display=""
 if [ -n "$project_dir" ] && [ -n "$current_dir" ]; then
     project_name=$(basename "$project_dir")
@@ -60,20 +99,13 @@ if [ -n "$project_dir" ] && [ -n "$current_dir" ]; then
             dir_display="$project_name/$relative"
         fi
     fi
-elif [ -n "$current_dir" ]; then
-    dir_display=$(basename "$current_dir")
 fi
+[ -z "$dir_display" ] && [ -n "$current_dir" ] && dir_display=$(basename "$current_dir")
 
-# --- 模型 ---
-model=$(echo "$input" | jq -r '.model.display_name // "Unknown"')
-
-# --- Context (null 统一降级为 0, 保证始终展示) ---
-used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
-
-# --- Load: 相对于可用窗口（扣除16%缓冲）的占用率 ---
+# --- Load calculation (relative to usable window minus 16% buffer) ---
 BUFFER_PCT=16
-load_pct=$(echo "$input" | jq -r --argjson buf "$BUFFER_PCT" '
-  (.context_window.used_percentage // 0) as $used |
+load_pct=$(echo "$parsed" | jq -r --argjson buf "$BUFFER_PCT" '
+  .used_pct as $used |
   (100 - $buf) as $usable |
   if $usable > 0 then
     [$used * 100 / $usable | floor, 100] | min
@@ -82,13 +114,47 @@ load_pct=$(echo "$input" | jq -r --argjson buf "$BUFFER_PCT" '
   end
 ')
 
-# --- 智谱 API 用量（无缓存，每次实时查询） ---
+# --- Session start time (from transcript file) ---
+session_start=""
+if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
+    start_ts=$(stat -f %B "$transcript_path" 2>/dev/null || stat -c %W "$transcript_path" 2>/dev/null)
+    if [ -n "$start_ts" ] && [ "$start_ts" -gt 0 ] 2>/dev/null; then
+        session_start=$(date -r "$start_ts" "+%H:%M:%S" 2>/dev/null || date -d "@$start_ts" "+%H:%M:%S" 2>/dev/null)
+    fi
+fi
+
+# --- Last LLM response time (recorded to temp file) ---
+last_llm_time=""
+state_file="/tmp/claude-statusline-${session_id}.time"
+now_ts=$(date +%s)
+
+if [ -n "$session_id" ]; then
+    if [ -f "$state_file" ]; then
+        last_ts=$(cat "$state_file" 2>/dev/null)
+        if [ -n "$last_ts" ] && [ "$last_ts" -gt 0 ] 2>/dev/null; then
+            elapsed=$((now_ts - last_ts))
+            if [ $elapsed -lt 60 ]; then
+                last_llm_time="${elapsed}s ago"
+            else
+                last_llm_time="$((elapsed / 60))m ago"
+            fi
+        fi
+    fi
+    echo "$now_ts" > "$state_file"
+fi
+
+# --- Session duration ---
+duration_str=""
+if [ -n "$total_duration_ms" ] && [ "$total_duration_ms" -gt 0 ] 2>/dev/null; then
+    duration_str=$(format_duration "$total_duration_ms")
+fi
+
+# --- Zhipu API usage ---
 get_zhipu_usage() {
     local auth_token=""
     if [ -f "$HOME/.claude/.zhipu_auth_token" ]; then
         auth_token=$(cat "$HOME/.claude/.zhipu_auth_token" 2>/dev/null)
     fi
-
     [ -z "$auth_token" ] && return
 
     curl -s --max-time 5 'https://bigmodel.cn/api/monitor/usage/quota/limit' \
@@ -101,59 +167,112 @@ get_zhipu_usage() {
 }
 
 zhipu_data=$(get_zhipu_usage)
-zhipu_line3=""
+provider_line=""
 
 if echo "$zhipu_data" | jq -e '.success == true' >/dev/null 2>&1; then
     zhipu_level=$(echo "$zhipu_data" | jq -r '.data.level // ""')
-    zhipu_items=()
+    provider_items=()
 
-    # TOKENS_LIMIT（优先展示）
+    # Model
+    [ -n "$model" ] && provider_items+=("Model: ${BB}${model}${D}")
+
+    # TOKENS_LIMIT
     tokens_limit=$(echo "$zhipu_data" | jq -r '.data.limits[] | select(.type == "TOKENS_LIMIT")')
     if [ -n "$tokens_limit" ]; then
         tokens_pct=$(echo "$tokens_limit" | jq -r '.percentage // 0')
         tokens_bar=$(build_bar "$tokens_pct")
-        zhipu_items+=("Token:${tokens_bar}")
+        provider_items+=("Token: ${tokens_bar}")
     fi
 
-    # TIME_LIMIT（MCP 用量）
+    # TIME_LIMIT (MCP usage)
     time_limit=$(echo "$zhipu_data" | jq -r '.data.limits[] | select(.type == "TIME_LIMIT")')
     if [ -n "$time_limit" ]; then
         time_pct=$(echo "$time_limit" | jq -r '.percentage // 0')
         time_current=$(echo "$time_limit" | jq -r '.currentValue // 0')
         mcp_text="${time_pct}%(${time_current})"
         time_bar=$(build_bar "$time_pct" "$mcp_text")
-        zhipu_items+=("MCP:${time_bar}")
+        provider_items+=("MCP: ${time_bar}")
     fi
 
-    # 组合智谱第三行
-    if [ ${#zhipu_items[@]} -gt 0 ]; then
-        zhipu_label="Z.ai CodingPlan"
-        [ -n "$zhipu_level" ] && zhipu_label="Z.ai CodingPlan-${zhipu_level}"
-        zhipu_combined="${zhipu_items[0]}"
-        for item in "${zhipu_items[@]:1}"; do
-            zhipu_combined="${zhipu_combined} ${item}"
+    # Build provider line
+    if [ ${#provider_items[@]} -gt 0 ]; then
+        provider_label="Z.ai"
+        [ -n "$zhipu_level" ] && provider_label="Z.ai-${zhipu_level}"
+        provider_combined="${provider_items[0]}"
+        for item in "${provider_items[@]:1}"; do
+            provider_combined="${provider_combined} ▸ ${item}"
         done
-        zhipu_line3="${zhipu_label} ${zhipu_combined}"
+        provider_line="Provider: ${BC}${provider_label}${D} ▸ ${provider_combined}"
     fi
 fi
 
-# --- 第一行: Project + Model ---
+# --- Git branch (fallback if no worktree) ---
+git_branch=""
+if [ -z "$worktree_name" ] && [ -z "$worktree_branch" ]; then
+    if [ -n "$current_dir" ] && [ -d "$current_dir/.git" ] 2>/dev/null || git -C "$current_dir" rev-parse --git-dir >/dev/null 2>&1; then
+        git_branch=$(git -C "${current_dir:-.}" branch --show-current 2>/dev/null || git -C "${current_dir:-.}" rev-parse --short HEAD 2>/dev/null)
+    fi
+fi
+
+# --- Line 1: Project + Worktree/Branch + Agent ---
 line1_parts=()
-[ -n "$dir_display" ] && line1_parts+=("Project:${dir_display}")
-[ -n "$model" ] && line1_parts+=("Model:${model}")
+if [ -n "$dir_display" ]; then
+    line1_parts+=("Project: ${BG}${dir_display}${D}")
+fi
+if [ -n "$worktree_name" ]; then
+    line1_parts+=("Worktree: ${BC}${worktree_name}${D}")
+elif [ -n "$worktree_branch" ]; then
+    line1_parts+=("Branch: ${BC}${worktree_branch}${D}")
+elif [ -n "$git_branch" ]; then
+    line1_parts+=("Branch: ${BC}${git_branch}${D}")
+fi
+if [ -n "$agent_name" ]; then
+    line1_parts+=("Agent: ${BY}${agent_name}${D}")
+fi
 
-line1="${line1_parts[0]}"
-for part in "${line1_parts[@]:1}"; do
-    line1="$line1 ▸ $part"
-done
+line1=""
+if [ ${#line1_parts[@]} -gt 0 ]; then
+    line1="${line1_parts[0]}"
+    for part in "${line1_parts[@]:1}"; do
+        line1="$line1 ▸ $part"
+    done
+fi
 
-# --- 第二行: Context + Load ---
+# --- Line 2: Context + Load ---
 ctx_bar=$(build_bar "$used_pct")
 load_bar=$(build_bar "$load_pct")
-line2="Context:${ctx_bar} ▸ Load:${load_bar}"
+line2="Context: ${ctx_bar} ▸ Load: ${load_bar}"
 
-# --- 组合输出 ---
-output="${line1}\n${line2}"
-[ -n "$zhipu_line3" ] && output="${output}\n${zhipu_line3}"
+# --- Line 3: Time info ---
+time_parts=()
+[ -n "$session_start" ] && time_parts+=("Start: ${C}${session_start}${D}")
+[ -n "$duration_str" ] && time_parts+=("Duration: ${G}${duration_str}${D}")
+[ -n "$last_llm_time" ] && time_parts+=("Last: ${Y}${last_llm_time}${D}")
+
+line3=""
+if [ ${#time_parts[@]} -gt 0 ]; then
+    line3="Time: ${time_parts[0]}"
+    for part in "${time_parts[@]:1}"; do
+        line3="$line3 ▸ $part"
+    done
+fi
+
+# --- Line 4: Session info ---
+line4=""
+if [ -n "$session_id" ]; then
+    # Session name not available in JSON (feature request: anthropics/claude-code#15472)
+    line4="Session: ID: ${M}${session_id:0:12}${D}"
+fi
+
+# --- Combine output ---
+output=""
+[ -n "$line1" ] && output="${line1}"
+[ -n "$line2" ] && output="${output}\n${line2}"
+[ -n "$provider_line" ] && output="${output}\n${provider_line}"
+[ -n "$line3" ] && output="${output}\n${line3}"
+[ -n "$line4" ] && output="${output}\n${line4}"
+
+# Remove leading newline if line1 is empty
+output="${output#\\n}"
 
 echo -e "$output"
