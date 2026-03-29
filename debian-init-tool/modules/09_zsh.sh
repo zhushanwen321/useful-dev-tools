@@ -36,9 +36,10 @@ select_zsh_all_in_one() {
     local result
     result=$(safe_whiptail --title "Zsh 配置" --checklist \
         "选择主题(一个)、插件和选项 (空格切换，回车确认):" \
-        26 65 16 "${items[@]}" 3>&1 1>&2 2>&3 | tr -d '"')
+        26 65 16 "${items[@]}")
 
-    echo "$result"
+    # 移除引号（whiptail checklist 返回选中项时带引号）
+    echo "$result" | tr -d '"'
 }
 
 # 解析综合选择结果，分离出主题、插件、默认 Shell
