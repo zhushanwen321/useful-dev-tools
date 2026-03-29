@@ -75,18 +75,12 @@ get_zhipu_usage() {
         fi
     fi
 
-    # 动态获取 token：优先从 Python 脚本读取 Chrome Cookie
+    # 从缓存文件读取 token（不触发 Keychain）
     local auth_token=""
-    if [ -x "$HOME/.claude/custom-tools/zhipu_token.py" ]; then
-        auth_token=$(python3 "$HOME/.claude/custom-tools/zhipu_token.py" 2>/dev/null)
-    fi
-
-    # 如果动态获取失败，尝试从手动维护的 token 文件读取
-    if [ -z "$auth_token" ] && [ -f "$HOME/.claude/.zhipu_auth_token" ]; then
+    if [ -f "$HOME/.claude/.zhipu_auth_token" ]; then
         auth_token=$(cat "$HOME/.claude/.zhipu_auth_token" 2>/dev/null)
     fi
 
-    # 没有 token 就跳过
     [ -z "$auth_token" ] && return
 
     local response=$(curl -s --max-time 5 'https://bigmodel.cn/api/monitor/usage/quota/limit' \
