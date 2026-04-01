@@ -7,6 +7,86 @@ R='\033[31m' G='\033[32m' Y='\033[33m' B='\033[34m' M='\033[35m' C='\033[36m' W=
 # Bold variants
 BG='\033[1;32m' BY='\033[1;33m' BB='\033[1;34m' BC='\033[1;36m'
 
+# ============================================================
+# --- Token Speed Tracking ---
+# ============================================================
+TOKEN_STATS_DIR="${HOME}/.claude/token-stats"
+mkdir -p "$TOKEN_STATS_DIR"
+
+get_token_speed_stats() {
+    local output_tokens=$1
+    local api_duration_ms=$2
+    local session_id=$3
+    local model=$4
+
+    local current_speed=0
+    if [ -n "$api_duration_ms" ] && [ "$api_duration_ms" -gt 0 ] 2>/dev/null; then
+        current_speed=$(awk "BEGIN {printf \"%.0f\", ($output_tokens / $api_duration_ms) * 1000}")
+    fi
+
+    local today=$(date +%Y-%m-%d)
+    local today_dir="${TOKEN_STATS_DIR}/${today}"
+    mkdir -p "$today_dir"
+
+    local file_name="${session_id}__${model}"
+    file_name="${file_name//\//_}"
+    file_name="${file_name// /_}"
+    local today_file="${today_dir}/${file_name}.txt"
+
+    if [ -n "$session_id" ] && [ -n "$model" ] && [ "$current_speed" -gt 0 ] 2>/dev/null; then
+        echo "$(date +%s),${output_tokens},${api_duration_ms},${current_speed}" >> "$today_file"
+    fi
+
+    local today_avg=0
+    if [ -f "$today_file" ]; then
+        today_avg=$(awk -F, '
+            BEGIN { sum=0; count=0 }
+            { sum+=$4; count++ }
+            END { if(count>0) printf "%.0f", sum/count }
+        ' "$today_file" 2>/dev/null || echo "0")
+    fi
+
+    local seven_day_avg=0
+    local seven_day_total=0
+    local seven_day_count=0
+    for i in {0..6}; do
+        local day_dir="${TOKEN_STATS_DIR}/$(date -v-${i}d +%Y-%m-%d)"
+        local day_file="${day_dir}/${file_name}.txt"
+        if [ -f "$day_file" ]; then
+            while IFS=',' read -r ts otps dm spd; do
+                [ -n "$spd" ] && [ "$spd" -gt 0 ] 2>/dev/null && {
+                    seven_day_total=$((seven_day_total + spd))
+                    seven_day_count=$((seven_day_count + 1))
+                }
+            done < "$day_file"
+        fi
+    done
+    if [ "$seven_day_count" -gt 0 ] 2>/dev/null; then
+        seven_day_avg=$(awk "BEGIN {printf \"%.0f\", $seven_day_total / $seven_day_count}")
+    fi
+
+    local thirty_day_avg=0
+    local thirty_day_total=0
+    local thirty_day_count=0
+    for i in {0..29}; do
+        local day_dir="${TOKEN_STATS_DIR}/$(date -v-${i}d +%Y-%m-%d)"
+        local day_file="${day_dir}/${file_name}.txt"
+        if [ -f "$day_file" ]; then
+            while IFS=',' read -r ts otps dm spd; do
+                [ -n "$spd" ] && [ "$spd" -gt 0 ] 2>/dev/null && {
+                    thirty_day_total=$((thirty_day_total + spd))
+                    thirty_day_count=$((thirty_day_count + 1))
+                }
+            done < "$day_file"
+        fi
+    done
+    if [ "$thirty_day_count" -gt 0 ] 2>/dev/null; then
+        thirty_day_avg=$(awk "BEGIN {printf \"%.0f\", $thirty_day_total / $thirty_day_count}")
+    fi
+
+    echo "${current_speed} ${today_avg} ${seven_day_avg} ${thirty_day_avg}"
+}
+
 # --- Progress bar (text embedded, background filled) ---
 build_bar() {
     local pct=$1
@@ -70,6 +150,8 @@ parsed=$(echo "$input" | jq -c '{
     worktree_name: .worktree.name,
     worktree_branch: .worktree.branch,
     total_duration_ms: .cost.total_duration_ms,
+    total_api_duration_ms: .cost.total_api_duration_ms,
+    total_output_tokens: .context_window.total_output_tokens,
     session_id: .session_id,
     transcript_path: .transcript_path
 }')
@@ -82,6 +164,8 @@ agent_name=$(echo "$parsed" | jq -r '.agent // empty')
 worktree_name=$(echo "$parsed" | jq -r '.worktree_name // empty')
 worktree_branch=$(echo "$parsed" | jq -r '.worktree_branch // empty')
 total_duration_ms=$(echo "$parsed" | jq -r '.total_duration_ms // 0')
+total_api_duration_ms=$(echo "$parsed" | jq -r '.total_api_duration_ms // 0')
+total_output_tokens=$(echo "$parsed" | jq -r '.total_output_tokens // 0')
 session_id=$(echo "$parsed" | jq -r '.session_id // empty')
 transcript_path=$(echo "$parsed" | jq -r '.transcript_path // empty')
 
@@ -149,7 +233,9 @@ if [ -n "$total_duration_ms" ] && [ "$total_duration_ms" -gt 0 ] 2>/dev/null; th
     duration_str=$(format_duration "$total_duration_ms")
 fi
 
-# --- Zhipu API usage ---
+# --- Token Speed Stats ---
+read -r current_speed today_avg seven_day_avg thirty_day_avg <<< "$(get_token_speed_stats "$total_output_tokens" "$total_api_duration_ms" "$session_id" "$model")"
+
 get_zhipu_usage() {
     local auth_token=""
     if [ -f "$HOME/.claude/.zhipu_auth_token" ]; then
@@ -243,25 +329,40 @@ ctx_bar=$(build_bar "$used_pct")
 load_bar=$(build_bar "$load_pct")
 line2="Context: ${ctx_bar} ▸ Load: ${load_bar}"
 
-# --- Line 3: Time info ---
+# --- Line 3: Token Speed ---
+speed_parts=()
+[ -n "$current_speed" ] && [ "$current_speed" -gt 0 ] 2>/dev/null && speed_parts+=("Speed: ${G}${current_speed}${D} tok/s")
+[ -n "$today_avg" ] && [ "$today_avg" -gt 0 ] 2>/dev/null && speed_parts+=("Today: ${C}${today_avg}${D}")
+[ -n "$seven_day_avg" ] && [ "$seven_day_avg" -gt 0 ] 2>/dev/null && speed_parts+=("7d: ${Y}${seven_day_avg}${D}")
+[ -n "$thirty_day_avg" ] && [ "$thirty_day_avg" -gt 0 ] 2>/dev/null && speed_parts+=("30d: ${M}${thirty_day_avg}${D}")
+
+line3=""
+if [ ${#speed_parts[@]} -gt 0 ]; then
+    line3="Token: ${speed_parts[0]}"
+    for part in "${speed_parts[@]:1}"; do
+        line3="$line3 ▸ $part"
+    done
+fi
+
+# --- Line 4: Time info ---
 time_parts=()
 [ -n "$session_start" ] && time_parts+=("Start: ${C}${session_start}${D}")
 [ -n "$duration_str" ] && time_parts+=("Duration: ${G}${duration_str}${D}")
 [ -n "$last_llm_time" ] && time_parts+=("Last: ${Y}${last_llm_time}${D}")
 
-line3=""
+line4=""
 if [ ${#time_parts[@]} -gt 0 ]; then
-    line3="Time: ${time_parts[0]}"
+    line4="Time: ${time_parts[0]}"
     for part in "${time_parts[@]:1}"; do
-        line3="$line3 ▸ $part"
+        line4="$line4 ▸ $part"
     done
 fi
 
-# --- Line 4: Session info ---
-line4=""
+# --- Line 5: Session info ---
+line5=""
 if [ -n "$session_id" ]; then
     # Session name not available in JSON (feature request: anthropics/claude-code#15472)
-    line4="Session: ID: ${M}${session_id:0:12}${D}"
+    line5="Session: ID: ${M}${session_id:0:12}${D}"
 fi
 
 # --- Combine output ---
@@ -271,6 +372,7 @@ output=""
 [ -n "$provider_line" ] && output="${output}\n${provider_line}"
 [ -n "$line3" ] && output="${output}\n${line3}"
 [ -n "$line4" ] && output="${output}\n${line4}"
+[ -n "$line5" ] && output="${output}\n${line5}"
 
 # Remove leading newline if line1 is empty
 output="${output#\\n}"
