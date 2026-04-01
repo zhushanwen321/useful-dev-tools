@@ -47,9 +47,25 @@ get_token_speed_stats() {
 
     local seven_day_avg=0
     local seven_day_total=0
+    # 检测操作系统类型，用于日期计算
+    local date_cmd
+    if date -v-1d +%Y-%m-%d >/dev/null 2>&1; then
+        # macOS/BSD
+        date_cmd="bsd"
+    else
+        # Linux/GNU
+        date_cmd="gnu"
+    fi
+
     local seven_day_count=0
     for i in {0..6}; do
-        local day_dir="${TOKEN_STATS_DIR}/$(date -v-${i}d +%Y-%m-%d)"
+        local day_str
+        if [ "$date_cmd" = "bsd" ]; then
+            day_str=$(date -v-${i}d +%Y-%m-%d)
+        else
+            day_str=$(date -d "${i} days ago" +%Y-%m-%d)
+        fi
+        local day_dir="${TOKEN_STATS_DIR}/${day_str}"
         local day_file="${day_dir}/${file_name}.txt"
         if [ -f "$day_file" ]; then
             while IFS=',' read -r ts otps dm spd; do
@@ -68,7 +84,13 @@ get_token_speed_stats() {
     local thirty_day_total=0
     local thirty_day_count=0
     for i in {0..29}; do
-        local day_dir="${TOKEN_STATS_DIR}/$(date -v-${i}d +%Y-%m-%d)"
+        local day_str
+        if [ "$date_cmd" = "bsd" ]; then
+            day_str=$(date -v-${i}d +%Y-%m-%d)
+        else
+            day_str=$(date -d "${i} days ago" +%Y-%m-%d)
+        fi
+        local day_dir="${TOKEN_STATS_DIR}/${day_str}"
         local day_file="${day_dir}/${file_name}.txt"
         if [ -f "$day_file" ]; then
             while IFS=',' read -r ts otps dm spd; do
