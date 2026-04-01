@@ -333,7 +333,6 @@ handle_uninstall() {
 # 主循环
 while true; do
     show_menu
-    local main_choice
     main_choice=$(get_choice "请输入选项 (1-3): " 1 3)
 
     case "$main_choice" in
