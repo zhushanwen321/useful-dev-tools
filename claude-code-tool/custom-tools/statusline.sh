@@ -16,8 +16,7 @@ mkdir -p "$TOKEN_STATS_DIR"
 get_token_speed_stats() {
     local output_tokens=$1
     local api_duration_ms=$2
-    local session_id=$3
-    local model=$4
+    local model=$3
 
     local current_speed=0
     if [ -n "$api_duration_ms" ] && [ "$api_duration_ms" -gt 0 ] 2>/dev/null; then
@@ -28,12 +27,12 @@ get_token_speed_stats() {
     local today_dir="${TOKEN_STATS_DIR}/${today}"
     mkdir -p "$today_dir"
 
-    local file_name="${session_id}__${model}"
+    local file_name="${model}"
     file_name="${file_name//\//_}"
     file_name="${file_name// /_}"
     local today_file="${today_dir}/${file_name}.txt"
 
-    if [ -n "$session_id" ] && [ -n "$model" ] && [ "$current_speed" -gt 0 ] 2>/dev/null; then
+    if [ -n "$model" ] && [ "$current_speed" -gt 0 ] 2>/dev/null; then
         echo "$(date +%s),${output_tokens},${api_duration_ms},${current_speed}" >> "$today_file"
     fi
 
@@ -234,7 +233,7 @@ if [ -n "$total_duration_ms" ] && [ "$total_duration_ms" -gt 0 ] 2>/dev/null; th
 fi
 
 # --- Token Speed Stats ---
-read -r current_speed today_avg seven_day_avg thirty_day_avg <<< "$(get_token_speed_stats "$total_output_tokens" "$total_api_duration_ms" "$session_id" "$model")"
+read -r current_speed today_avg seven_day_avg thirty_day_avg <<< "$(get_token_speed_stats "$total_output_tokens" "$total_api_duration_ms" "$model")"
 
 get_zhipu_usage() {
     local auth_token=""
