@@ -243,6 +243,7 @@ if [ -n "$session_id" ]; then
             else
                 last_llm_time="$((elapsed / 60))m ago"
             fi
+            last_response_time=$(date -r "$last_ts" "+%H:%M:%S" 2>/dev/null || date -d "@$last_ts" "+%H:%M:%S" 2>/dev/null)
         fi
     fi
     echo "$now_ts" > "$state_file"
@@ -383,7 +384,7 @@ fi
 line5=""
 if [ -n "$session_id" ]; then
     # Session name not available in JSON (feature request: anthropics/claude-code#15472)
-    line5="Session: ID: ${M}${session_id:0:12}${D}"
+    line5="Session: ID: ${M}${session_id:0:12}${D} ▸ Last Response: ${C}${last_response_time:---:--:--}${D}"
 fi
 
 # --- Combine output ---
