@@ -381,11 +381,15 @@ if [ ${#speed_parts[@]} -gt 0 ]; then
     done
 fi
 
-# Time
+# Time (resp 紧跟 last，两者都是时间点信息)
 time_items=()
 [ -n "$session_start" ] && time_items+=("${DG}from${D} ${C}${session_start}${D}")
 [ -n "$duration_str" ] && time_items+=("${DG}run${D} ${G}${duration_str}${D}")
-[ -n "$last_llm_time" ] && time_items+=("${DG}last${D} ${Y}${last_llm_time}${D}")
+if [ -n "$last_llm_time" ]; then
+    local_time="${DG}last${D} ${Y}${last_llm_time}${D}"
+    [ -n "$last_response_time" ] && local_time="${local_time} ${NSEP} ${DG}resp${D} ${C}${last_response_time}${D}"
+    time_items+=("$local_time")
+fi
 
 time_str=""
 if [ ${#time_items[@]} -gt 0 ]; then
@@ -399,15 +403,9 @@ if [ -n "$time_str" ]; then
     [ -n "$line3" ] && line3="${line3} ${SEP} ${time_str}" || line3="$time_str"
 fi
 
-# Session
-session_str=""
+# Session (完整 ID)
 if [ -n "$session_id" ]; then
-    session_str="${GM}${session_id:0:8}${D}"
-    [ -n "$last_response_time" ] && session_str="${session_str} ${NSEP} ${DG}resp${D} ${C}${last_response_time}${D}"
-fi
-
-if [ -n "$session_str" ]; then
-    [ -n "$line3" ] && line3="${line3} ${SEP} ${session_str}" || line3="$session_str"
+    [ -n "$line3" ] && line3="${line3} ${SEP} ${GM}${session_id}${D}" || line3="${GM}${session_id}${D}"
 fi
 
 # ═══════════════════════════════════════════════════════════
