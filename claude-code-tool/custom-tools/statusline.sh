@@ -290,6 +290,7 @@ zhipu_label=""
 zhipu_tokens_pct=0
 zhipu_time_pct=0
 zhipu_time_current=""
+zhipu_reset_time=""
 
 if echo "$zhipu_data" | jq -e '.success == true' >/dev/null 2>&1; then
     has_zhipu=true
@@ -306,6 +307,30 @@ if echo "$zhipu_data" | jq -e '.success == true' >/dev/null 2>&1; then
     if [ -n "$time_limit" ]; then
         zhipu_time_pct=$(echo "$time_limit" | jq -r '.percentage // 0')
         zhipu_time_current=$(echo "$time_limit" | jq -r '.currentValue // 0')
+    fi
+
+    # 获取重置时间（优先使用 TOKENS_LIMIT 的重置时间，如果没有则使用 TIME_LIMIT 的）
+    reset_time_ms=$(echo "$zhipu_data" | jq -r '.data.limits[] | select(.type == "TOKENS_LIMIT") | .nextResetTime // empty')
+    if [ -z "$reset_time_ms" ]; then
+        reset_time_ms=$(echo "$zhipu_data" | jq -r '.data.limits[] | select(.type == "TIME_LIMIT") | .nextResetTime // empty')
+    fi
+    if [ -n "$reset_time_ms" ] && [ "$reset_time_ms" != "null" ]; then
+        reset_time_sec=$((reset_time_ms / 1000))
+        now_sec=$(date +%s)
+        remaining_sec=$((reset_time_sec - now_sec))
+        if [ "$remaining_sec" -gt 0 ] 2>/dev/null; then
+            remaining_days=$((remaining_sec / 86400))
+            remaining_hours=$(((remaining_sec % 86400) / 3600))
+            if [ "$remaining_days" -gt 0 ]; then
+                zhipu_reset_time="${remaining_days}d${remaining_hours}h"
+            elif [ "$remaining_hours" -gt 0 ]; then
+                remaining_mins=$(((remaining_sec % 3600) / 60))
+                zhipu_reset_time="${remaining_hours}h${remaining_mins}m"
+            else
+                remaining_mins=$(((remaining_sec % 3600) / 60))
+                zhipu_reset_time="${remaining_mins}m"
+            fi
+        fi
     fi
 fi
 
@@ -361,6 +386,9 @@ if [ "$has_zhipu" = true ]; then
     if [ -n "$zhipu_time_current" ]; then
         mcp_bar=$(build_bar "$zhipu_time_pct" 6)
         provider_part="${provider_part} ${NSEP} ${DG}mcp${D} ${mcp_bar} ${WH}${zhipu_time_pct}%${D} ${GM}(${zhipu_time_current})${D}"
+    fi
+    if [ -n "$zhipu_reset_time" ]; then
+        provider_part="${provider_part} ${NSEP} ${DG}reset${D} ${Y}${zhipu_reset_time}${D}"
     fi
     metrics="${metrics} ${SEP} ${provider_part}"
 fi
