@@ -108,9 +108,10 @@ function getUnprocessedCommits(gitRoot: string, lastCommit: string): Array<{ has
   // lastCommit 为空时获取所有 commit
   const range = lastCommit ? `${lastCommit}..HEAD` : 'HEAD'
 
+  // %x00 用 null byte 分隔，避免 subject 中的空格干扰解析
   const result = spawnSync(
     'git',
-    ['log', range, '--format=%H %s %ct'],
+    ['log', range, '--format=%H%x00%s%x00%ct'],
     {
       cwd: gitRoot,
       encoding: 'utf-8',
@@ -120,18 +121,13 @@ function getUnprocessedCommits(gitRoot: string, lastCommit: string): Array<{ has
 
   if (result.status !== 0 || !result.stdout.trim()) return []
 
-  // 格式: <hash> <message...> <timestamp>
   return result.stdout
     .trim()
     .split('\n')
     .map((line) => {
-      const lastSpace = line.lastIndexOf(' ')
-      const secondLastSpace = line.lastIndexOf(' ', lastSpace - 1)
-      if (lastSpace === -1 || secondLastSpace === -1) return null
-
-      const hash = line.slice(0, secondLastSpace)
-      const message = line.slice(secondLastSpace + 1, lastSpace)
-      const timestamp = line.slice(lastSpace + 1)
+      const parts = line.split('\0')
+      if (parts.length !== 3) return null
+      const [hash, message, timestamp] = parts
       return { hash, message, timestamp }
     })
     .filter((c): c is NonNullable<typeof c> => c !== null)
@@ -192,18 +188,16 @@ function getChangelogEntries(knowledgeDir: string, sinceTimestamp: string, until
   try {
     const content = readFileSync(changelogPath, 'utf-8')
     const lines = content.trim().split('\n')
-    const since = sinceTimestamp ? parseInt(sinceTimestamp, 10) : 0
-    const until = parseInt(untilTimestamp, 10)
+    const since = sinceTimestamp ? new Date(sinceTimestamp).getTime() : 0
+    const until = new Date(untilTimestamp).getTime() || Date.now()
 
-    // 筛选时间范围内的条目（changelog 格式每行一条 JSON）
+    // 筛选时间范围内的条目（changelog 格式：timestamp|tool_name|file_path|preview）
     const filtered = lines.filter((line) => {
-      try {
-        const entry = JSON.parse(line)
-        const entryTs = parseInt(entry.timestamp, 10)
-        return entryTs > since && entryTs <= until
-      } catch {
-        return false
-      }
+      const pipeIndex = line.indexOf('|')
+      if (pipeIndex === -1) return false
+      const entryTs = new Date(line.slice(0, pipeIndex)).getTime()
+      if (isNaN(entryTs)) return false
+      return entryTs > since && entryTs <= until
     })
 
     // 最多返回 20 条，防止 prompt 过长
