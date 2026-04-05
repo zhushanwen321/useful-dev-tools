@@ -15,7 +15,12 @@ export function parseHookInput(input: string): HookInput | null {
     // Claude Code 的 hook JSON 结构可能变化，只要能解析就返回
     // 调用方（cli.ts）会根据具体子命令取需要的字段
     return {
-      tool: typeof parsed.tool === 'string' ? parsed.tool : undefined,
+      // Claude Code PostToolUse hook 使用 tool_name 字段，兼容旧版 tool 字段
+      tool: typeof parsed.tool_name === 'string'
+        ? parsed.tool_name
+        : typeof parsed.tool === 'string'
+          ? parsed.tool
+          : undefined,
       tool_input:
         parsed.tool_input && typeof parsed.tool_input === 'object'
           ? (parsed.tool_input as Record<string, any>)
