@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$SCRIPT_DIR"
 
 ITEMS=("agents" "commands" "skills" "custom-tools" "CLAUDE.md")
+KNOWLEDGE_ENGINE_DIR="$CLAUDE_DIR/knowledge-engine"
 
 CLAUDE_HOME="$HOME/.claude"
 OPENCODE_HOME="$HOME/.opencode"
@@ -262,6 +263,194 @@ unconfigure_statusline() {
     fi
 }
 
+# ======================== 知识引擎配置 ========================
+
+configure_knowledge_engine() {
+    local SETTINGS="$CLAUDE_HOME/settings.json"
+    local ENGINE_SRC="$KNOWLEDGE_ENGINE_DIR/src/cli.ts"
+    local KNOWLEDGE_DIR="$CLAUDE_HOME/knowledge"
+
+    echo "--- 配置知识引擎 (Knowledge Engine) ---"
+
+    # 前置检查
+    if ! command -v bun &>/dev/null; then
+        echo "  ! bun 未安装，跳过知识引擎配置"
+        echo "  提示: curl -fsSL https://bun.sh/install | bash"
+        return 1
+    fi
+
+    if [ ! -f "$ENGINE_SRC" ]; then
+        echo "  ! 知识引擎源码不存在: $ENGINE_SRC"
+        return 1
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        echo "  ! jq 未安装，跳过知识引擎配置"
+        return 1
+    fi
+
+    # 安装依赖
+    echo "  + 安装知识引擎依赖..."
+    (cd "$KNOWLEDGE_ENGINE_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install) || {
+        echo "  ! 依赖安装失败"
+        return 1
+    }
+
+    # 创建知识库目录和默认配置
+    mkdir -p "$KNOWLEDGE_DIR"
+    if [ ! -f "$KNOWLEDGE_DIR/config.json" ]; then
+        echo '{
+  "categories": ["architecture", "patterns", "domain", "troubleshooting"],
+  "consolidateThreshold": 3,
+  "excludePatterns": ["**/*.lock", "**/node_modules/**", ".env*"]
+}' > "$KNOWLEDGE_DIR/config.json"
+        echo "  + 创建知识库全局配置: $KNOWLEDGE_DIR/config.json"
+    else
+        echo "  ✓ 知识库全局配置已存在，跳过"
+    fi
+
+    # 计算 cli.ts 的绝对路径
+    local CLI_PATH
+    CLI_PATH="$(cd "$KNOWLEDGE_ENGINE_DIR" && pwd)/src/cli.ts"
+
+    # 定义 hook 命令（每个命令都包含完整路径）
+    local RECORD_CMD="bun \"$CLI_PATH\" record"
+    local PROCESS_CMD="bun \"$CLI_PATH\" process"
+    local INJECT_CMD="bun \"$CLI_PATH\" inject-index"
+
+    # 用 jq 更新 settings.json 中的 hooks
+    echo "  + 更新 hooks 配置..."
+
+    local TMP
+    TMP=$(mktemp)
+
+    # 构建新的 hooks 配置，保留已有的非知识引擎 hook
+    jq --arg record "$RECORD_CMD" \
+       --arg process "$PROCESS_CMD" \
+       --arg inject "$INJECT_CMD" '
+      # PostToolUse: 添加知识引擎记录 hook
+      .hooks = (.hooks // {}) |
+      .hooks.PostToolUse = (.hooks.PostToolUse // []) |
+      .hooks.PostToolUse = (
+        [.hooks.PostToolUse[] | select(.hooks // [] | all(.command != $record))]
+        + [{
+          "matcher": "Write|Edit",
+          "hooks": [{
+            "type": "command",
+            "command": $record,
+            "async": true,
+            "timeout": 5
+          }]
+        }]
+      ) |
+
+      # Stop: 添加知识引擎处理 hook（保留已有的 Stop hook）
+      .hooks.Stop = (.hooks.Stop // []) |
+      .hooks.Stop = (
+        [.hooks.Stop[] | .hooks = [.hooks[] | select(.command != $process)]]
+        + [{
+          "hooks": [{
+            "type": "command",
+            "command": $process,
+            "async": true,
+            "timeout": 120
+          }]
+        }]
+      ) |
+
+      # SessionStart: 添加知识引擎索引注入
+      .hooks.SessionStart = (.hooks.SessionStart // []) |
+      .hooks.SessionStart = (
+        [.hooks.SessionStart[] | .hooks = [.hooks[] | select(.command != $inject)]]
+        + [{
+          "hooks": [{
+            "type": "command",
+            "command": $inject,
+            "timeout": 5
+          }]
+        }]
+      )
+    ' "$SETTINGS" > "$TMP"
+
+    if [ -s "$TMP" ]; then
+        mv "$TMP" "$SETTINGS"
+        echo "  ✓ hooks 已更新 (PostToolUse + Stop + SessionStart)"
+    else
+        rm -f "$TMP"
+        echo "  ! hooks 更新失败，请手动配置"
+        return 1
+    fi
+
+    # 配置 crontab（可选）
+    local CRON_SCRIPT="$KNOWLEDGE_ENGINE_DIR/scripts/cron-maintenance.sh"
+    local CRON_ENTRY="0 23 * * * $CRON_SCRIPT"
+
+    echo ""
+    echo "  可选: 添加定时维护任务"
+    echo "  运行以下命令添加 crontab:"
+    echo "    (crontab -l 2>/dev/null; echo '$CRON_ENTRY') | crontab -"
+
+    return 0
+}
+
+unconfigure_knowledge_engine() {
+    local SETTINGS="$CLAUDE_HOME/settings.json"
+
+    echo "--- 移除知识引擎配置 ---"
+
+    if [ ! -f "$SETTINGS" ]; then
+        echo "  未找到 settings.json，跳过"
+        return
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        echo "  ! jq 未安装，跳过"
+        return
+    fi
+
+    local CLI_PATH
+    CLI_PATH="$(cd "$KNOWLEDGE_ENGINE_DIR" 2>/dev/null && pwd)/src/cli.ts" || {
+        echo "  知识引擎目录不存在，跳过"
+        return
+    }
+
+    local RECORD_CMD="bun \"$CLI_PATH\" record"
+    local PROCESS_CMD="bun \"$CLI_PATH\" process"
+    local INJECT_CMD="bun \"$CLI_PATH\" inject-index"
+
+    local TMP
+    TMP=$(mktemp)
+
+    jq --arg record "$RECORD_CMD" \
+       --arg process "$PROCESS_CMD" \
+       --arg inject "$INJECT_CMD" '
+      # 移除 PostToolUse 中的知识引擎 hook
+      .hooks.PostToolUse = (.hooks.PostToolUse // []) |
+      .hooks.PostToolUse = [.hooks.PostToolUse[] | .hooks = [.hooks[] | select(.command != $record)]] |
+      .hooks.PostToolUse = [.hooks.PostToolUse[] | select((.hooks // []) | length > 0)] |
+
+      # 移除 Stop 中的知识引擎 hook
+      .hooks.Stop = (.hooks.Stop // []) |
+      .hooks.Stop = [.hooks.Stop[] | .hooks = [.hooks[] | select(.command != $process)]] |
+      .hooks.Stop = [.hooks.Stop[] | select((.hooks // []) | length > 0)] |
+
+      # 移除 SessionStart 中的知识引擎 hook
+      .hooks.SessionStart = (.hooks.SessionStart // []) |
+      .hooks.SessionStart = [.hooks.SessionStart[] | .hooks = [.hooks[] | select(.command != $inject)]] |
+      .hooks.SessionStart = [.hooks.SessionStart[] | select((.hooks // []) | length > 0)]
+    ' "$SETTINGS" > "$TMP"
+
+    if [ -s "$TMP" ]; then
+        mv "$TMP" "$SETTINGS"
+        echo "  ✓ 知识引擎 hooks 已移除"
+    else
+        rm -f "$TMP"
+        echo "  ! 移除失败"
+    fi
+
+    echo "  注意: 知识库数据 ($CLAUDE_HOME/knowledge/) 未删除，如需手动删除"
+}
+
 handle_install() {
     show_target_menu
     local choice
@@ -272,6 +461,8 @@ handle_install() {
             mkdir -p "$CLAUDE_HOME"
             install_for_home "$CLAUDE_HOME" "~/.claude"
             configure_statusline
+            echo ""
+            configure_knowledge_engine
             ;;
         2)
             if [ -d "$OPENCODE_HOME" ]; then
@@ -284,6 +475,8 @@ handle_install() {
             mkdir -p "$CLAUDE_HOME"
             install_for_home "$CLAUDE_HOME" "~/.claude"
             configure_statusline
+            echo ""
+            configure_knowledge_engine
             echo ""
             if [ -d "$OPENCODE_HOME" ]; then
                 install_for_home "$OPENCODE_HOME" "~/.opencode"
@@ -306,6 +499,7 @@ handle_uninstall() {
         1)
             uninstall_for_home "$CLAUDE_HOME" "~/.claude"
             unconfigure_statusline
+            unconfigure_knowledge_engine
             ;;
         2)
             if [ -d "$OPENCODE_HOME" ]; then
@@ -317,6 +511,7 @@ handle_uninstall() {
         3)
             uninstall_for_home "$CLAUDE_HOME" "~/.claude"
             unconfigure_statusline
+            unconfigure_knowledge_engine
             echo ""
             if [ -d "$OPENCODE_HOME" ]; then
                 uninstall_for_home "$OPENCODE_HOME" "~/.opencode"

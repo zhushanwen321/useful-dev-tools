@@ -11,3 +11,6 @@
 # 日志文件
 logs/
 *.log
+
+# Bun / Node
+**/node_modules/
