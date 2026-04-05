@@ -5,7 +5,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$SCRIPT_DIR"
 
-ITEMS=("agents" "commands" "skills" "custom-tools" "CLAUDE.md")
+# 目录类型的 ITEM：安装其子项为 symlink（不改动目录本身）
+DIR_ITEMS=("agents" "commands" "skills" "custom-tools")
+# 文件类型的 ITEM：直接作为 symlink 安装
+FILE_ITEMS=("CLAUDE.md")
 KNOWLEDGE_ENGINE_DIR="$CLAUDE_DIR/knowledge-engine"
 
 CLAUDE_HOME="$HOME/.claude"
@@ -83,6 +86,80 @@ is_our_symlink() {
     [ "$resolved_current" = "$resolved_src" ] || [ "$current_target" = "$src" ]
 }
 
+# 迁移老安装方式：如果目标是目录级 symlink，移除它
+migrate_legacy_symlinks() {
+    local HOME_DIR="$1"
+    local HOME_NAME="$2"
+    local MIGRATED=0
+
+    for ITEM in "${DIR_ITEMS[@]}"; do
+        local TARGET="$HOME_DIR/$ITEM"
+
+        # 检测是否为目录级 symlink（老安装方式）
+        if [ -L "$TARGET" ] && [ -d "$TARGET" ]; then
+            local CURRENT_TARGET
+            CURRENT_TARGET="$(readlink "$TARGET")"
+            echo "  迁移老安装: $ITEM (目录级 symlink -> $CURRENT_TARGET)"
+            rm "$TARGET"
+            # 创建目录作为容器
+            mkdir -p "$TARGET"
+            # 把旧 symlink 的内容重新安装为子项级 symlink
+            for CHILD in "$CLAUDE_DIR/$ITEM"/*; do
+                [ -e "$CHILD" ] || continue
+                local CHILD_NAME
+                CHILD_NAME="$(basename "$CHILD")"
+                ln -s "$CHILD" "$TARGET/$CHILD_NAME"
+            done
+            ((MIGRATED++))
+        fi
+    done
+
+    if [ "$MIGRATED" -gt 0 ]; then
+        echo "  已迁移 $MIGRATED 个目录从老安装方式到新方式"
+    fi
+    return 0
+}
+
+# 为单个子项创建 symlink，处理冲突
+install_symlink() {
+    local SRC="$1"
+    local TARGET="$2"
+    local ITEM_NAME="$3"
+    local BACKUP_DIR="$4"
+
+    if [ -L "$TARGET" ]; then
+        local CURRENT_TARGET
+        CURRENT_TARGET="$(readlink "$TARGET")"
+
+        local RESOLVED_SRC RESOLVED_CURRENT
+        RESOLVED_SRC="$(resolve_path "$SRC")" || RESOLVED_SRC="$SRC"
+        if [[ "$CURRENT_TARGET" != /* ]]; then
+            RESOLVED_CURRENT="$(cd "$(dirname "$TARGET")" 2>/dev/null && cd "$(dirname "$CURRENT_TARGET")" 2>/dev/null && pwd)/$(basename "$CURRENT_TARGET")" || RESOLVED_CURRENT="$CURRENT_TARGET"
+        else
+            RESOLVED_CURRENT="$CURRENT_TARGET"
+        fi
+
+        if [ "$RESOLVED_CURRENT" = "$RESOLVED_SRC" ] || [ "$CURRENT_TARGET" = "$SRC" ]; then
+            if [ -e "$TARGET" ]; then
+                return 0  # 已正确链接
+            else
+                rm "$TARGET"  # 失效 symlink
+            fi
+        else
+            echo "    - 替换旧链接: $ITEM_NAME ($CURRENT_TARGET)"
+            rm "$TARGET"
+        fi
+    elif [ -e "$TARGET" ]; then
+        local TIMESTAMP BACKUP
+        TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+        BACKUP="${BACKUP_DIR}/${ITEM_NAME}_${TIMESTAMP}"
+        echo "    - 备份: $ITEM_NAME -> $(basename "$BACKUP")"
+        mv "$TARGET" "$BACKUP"
+    fi
+
+    ln -s "$SRC" "$TARGET" 2>/dev/null
+}
+
 install_for_home() {
     local HOME_DIR="$1"
     local HOME_NAME="$2"
@@ -91,75 +168,62 @@ install_for_home() {
     echo "--- 安装到 $HOME_NAME ---"
     mkdir -p "$BACKUP_DIR"
 
-    for ITEM in "${ITEMS[@]}"; do
+    # 先迁移老安装方式
+    migrate_legacy_symlinks "$HOME_DIR" "$HOME_NAME"
+
+    # 安装目录类型 ITEM 的子项
+    for ITEM in "${DIR_ITEMS[@]}"; do
+        local SRC_DIR="$CLAUDE_DIR/$ITEM"
+        local TARGET_DIR="$HOME_DIR/$ITEM"
+
+        if [ ! -d "$SRC_DIR" ]; then
+            continue
+        fi
+
+        echo "处理目录: $ITEM/"
+        mkdir -p "$TARGET_DIR"
+
+        for CHILD in "$SRC_DIR"/*; do
+            [ -e "$CHILD" ] || continue
+            local CHILD_NAME
+            CHILD_NAME="$(basename "$CHILD")"
+            install_symlink "$CHILD" "$TARGET_DIR/$CHILD_NAME" "$ITEM/$CHILD_NAME" "$BACKUP_DIR"
+        done
+    done
+
+    # 安装文件类型 ITEM
+    for ITEM in "${FILE_ITEMS[@]}"; do
         local SRC="$CLAUDE_DIR/$ITEM"
         local TARGET="$HOME_DIR/$ITEM"
 
-        echo "处理: $ITEM"
-
         if [ ! -e "$SRC" ]; then
-            echo "  ! 源不存在，跳过"
             continue
         fi
 
-        if [ -L "$TARGET" ]; then
-            local CURRENT_TARGET
-            CURRENT_TARGET="$(readlink "$TARGET")"
-
-            local RESOLVED_SRC RESOLVED_CURRENT
-            RESOLVED_SRC="$(resolve_path "$SRC")" || RESOLVED_SRC="$SRC"
-            if [[ "$CURRENT_TARGET" != /* ]]; then
-                RESOLVED_CURRENT="$(cd "$(dirname "$TARGET")" 2>/dev/null && cd "$(dirname "$CURRENT_TARGET")" 2>/dev/null && pwd)/$(basename "$CURRENT_TARGET")" || RESOLVED_CURRENT="$CURRENT_TARGET"
-            else
-                RESOLVED_CURRENT="$CURRENT_TARGET"
-            fi
-
-            if [ "$RESOLVED_CURRENT" = "$RESOLVED_SRC" ] || [ "$CURRENT_TARGET" = "$SRC" ]; then
-                if [ -e "$TARGET" ]; then
-                    echo "  ✓ 已是软链接，指向正确路径，跳过"
-                    continue
-                else
-                    echo "  - 软链接已失效（源不存在），重新创建"
-                    rm "$TARGET"
-                fi
-            else
-                echo "  - 移除旧的软链接: $TARGET -> $CURRENT_TARGET"
-                rm "$TARGET"
-            fi
-
-        elif [ -e "$TARGET" ]; then
-            local TIMESTAMP BACKUP
-            TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-            BACKUP="${BACKUP_DIR}/${ITEM}_${TIMESTAMP}"
-            echo "  - 备份: $TARGET -> $BACKUP"
-            mv "$TARGET" "$BACKUP"
-        fi
-
-        echo "  + 创建软链接: $TARGET -> $SRC"
-        if ! ln -s "$SRC" "$TARGET" 2>/dev/null; then
-            echo "  ! 创建软链接失败: $TARGET"
-            continue
-        fi
+        echo "处理文件: $ITEM"
+        install_symlink "$SRC" "$TARGET" "$ITEM" "$BACKUP_DIR"
     done
 
     echo ""
-    echo "当前软链接状态:"
-    for ITEM in "${ITEMS[@]}"; do
+    echo "当前状态:"
+    for ITEM in "${DIR_ITEMS[@]}"; do
+        local TARGET_DIR="$HOME_DIR/$ITEM"
+        if [ -d "$TARGET_DIR" ]; then
+            local COUNT=0
+            for CHILD in "$TARGET_DIR"/*; do
+                if [ -L "$CHILD" ]; then
+                    ((COUNT++))
+                fi
+            done
+            echo "  $ITEM/ ($COUNT 个 symlink)"
+        fi
+    done
+    for ITEM in "${FILE_ITEMS[@]}"; do
         local TARGET="$HOME_DIR/$ITEM"
         if [ -L "$TARGET" ]; then
-            local LINK_TARGET
-            LINK_TARGET="$(readlink "$TARGET")"
-            if [ -e "$TARGET" ]; then
-                echo "  $ITEM -> $LINK_TARGET"
-            else
-                echo "  $ITEM -> $LINK_TARGET (链接失效!)"
-            fi
-        else
-            echo "  $ITEM (非软链接)"
+            echo "  $ITEM -> $(readlink "$TARGET")"
         fi
     done
-    echo ""
-    echo "备份文件位置: $BACKUP_DIR"
 }
 
 uninstall_for_home() {
@@ -170,7 +234,36 @@ uninstall_for_home() {
 
     local UNINSTALLED_COUNT=0
 
-    for ITEM in "${ITEMS[@]}"; do
+    # 卸载目录类型的子项 symlink
+    for ITEM in "${DIR_ITEMS[@]}"; do
+        local SRC_DIR="$CLAUDE_DIR/$ITEM"
+        local TARGET_DIR="$HOME_DIR/$ITEM"
+
+        # 兼容老安装方式：如果是目录级 symlink 直接移除
+        if [ -L "$TARGET_DIR" ] && [ -d "$TARGET_DIR" ]; then
+            echo "移除目录级软链接(老安装): $TARGET_DIR"
+            rm "$TARGET_DIR"
+            ((UNINSTALLED_COUNT++))
+            continue
+        fi
+
+        if [ ! -d "$TARGET_DIR" ]; then
+            continue
+        fi
+
+        for CHILD in "$TARGET_DIR"/*; do
+            [ -e "$CHILD" ] || continue
+            local CHILD_SRC="$SRC_DIR/$(basename "$CHILD")"
+            if is_our_symlink "$CHILD" "$CHILD_SRC"; then
+                echo "移除软链接: $CHILD"
+                rm "$CHILD"
+                ((UNINSTALLED_COUNT++))
+            fi
+        done
+    done
+
+    # 卸载文件类型
+    for ITEM in "${FILE_ITEMS[@]}"; do
         local SRC="$CLAUDE_DIR/$ITEM"
         local TARGET="$HOME_DIR/$ITEM"
 
@@ -178,10 +271,6 @@ uninstall_for_home() {
             echo "移除软链接: $TARGET"
             rm "$TARGET"
             ((UNINSTALLED_COUNT++))
-        else
-            if [ -e "$TARGET" ]; then
-                echo "跳过 (非本工具创建的软链接): $ITEM"
-            fi
         fi
     done
 
