@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$SCRIPT_DIR"
 
 # 目录类型的 ITEM：安装其子项为 symlink（不改动目录本身）
-DIR_ITEMS=("agents" "commands" "skills" "custom-tools")
+DIR_ITEMS=("agents" "commands" "skills" "custom-tools" "hooks")
 # 文件类型的 ITEM：直接作为 symlink 安装
 FILE_ITEMS=("CLAUDE.md")
 KNOWLEDGE_ENGINE_DIR="$CLAUDE_DIR/knowledge-engine"
@@ -540,6 +540,100 @@ unconfigure_knowledge_engine() {
     echo "  注意: 知识库数据 ($CLAUDE_HOME/knowledge/) 未删除，如需手动删除"
 }
 
+# ======================== Skill 注入 Hook 配置 ========================
+
+configure_skill_inject() {
+    local SETTINGS="$CLAUDE_HOME/settings.json"
+    local HOOK_CMD="bash \"\$HOME/.claude/hooks/skill-inject.sh\""
+
+    echo "--- 配置 Skill 注入 Hook ---"
+
+    if ! command -v jq &>/dev/null; then
+        echo "  ! jq 未安装，跳过 Skill 注入 Hook 配置"
+        return 1
+    fi
+
+    if [ ! -f "$SETTINGS" ]; then
+        echo "  + 创建 settings.json"
+        echo "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Skill\",\"hooks\":[{\"type\":\"command\",\"command\":$HOOK_CMD,\"timeout\":5}]}]}}" | jq . > "$SETTINGS"
+        return
+    fi
+
+    # 检查是否已配置
+    local CURRENT
+    CURRENT=$(jq -r '.hooks.PreToolUse // [] | .[] | select(.matcher == "Skill") | .hooks // [] | .[] | select(.command == "'"$HOOK_CMD"'") | .command // empty' "$SETTINGS" 2>/dev/null) || true
+
+    if [ "$CURRENT" = "$HOOK_CMD" ]; then
+        echo "  ✓ Skill 注入 Hook 已配置，跳过"
+        return
+    fi
+
+    echo "  + 更新 PreToolUse hook 配置..."
+    local TMP
+    TMP=$(mktemp)
+
+    jq --arg cmd "$HOOK_CMD" '
+      .hooks = (.hooks // {}) |
+      .hooks.PreToolUse = (.hooks.PreToolUse // []) |
+      .hooks.PreToolUse = (
+        [.hooks.PreToolUse[] | .hooks = [.hooks[] | select(.command != $cmd)] | select((.hooks // []) | length > 0)]
+        + [{
+          "matcher": "Skill",
+          "hooks": [{
+            "type": "command",
+            "command": $cmd,
+            "timeout": 5
+          }]
+        }]
+      )
+    ' "$SETTINGS" > "$TMP"
+
+    if [ -s "$TMP" ]; then
+        mv "$TMP" "$SETTINGS"
+        echo "  ✓ Skill 注入 Hook 已配置 (PreToolUse:Skill)"
+    else
+        rm -f "$TMP"
+        echo "  ! 更新 settings.json 失败，请手动配置"
+        return 1
+    fi
+
+    return 0
+}
+
+unconfigure_skill_inject() {
+    local SETTINGS="$CLAUDE_HOME/settings.json"
+    local HOOK_CMD="bash \"\$HOME/.claude/hooks/skill-inject.sh\""
+
+    echo "--- 移除 Skill 注入 Hook ---"
+
+    if [ ! -f "$SETTINGS" ]; then
+        echo "  未找到 settings.json，跳过"
+        return
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        echo "  ! jq 未安装，跳过"
+        return
+    fi
+
+    local TMP
+    TMP=$(mktemp)
+
+    jq --arg cmd "$HOOK_CMD" '
+      .hooks.PreToolUse = (.hooks.PreToolUse // []) |
+      .hooks.PreToolUse = [.hooks.PreToolUse[] | .hooks = [.hooks[] | select(.command != $cmd)]] |
+      .hooks.PreToolUse = [.hooks.PreToolUse[] | select((.hooks // []) | length > 0)]
+    ' "$SETTINGS" > "$TMP"
+
+    if [ -s "$TMP" ]; then
+        mv "$TMP" "$SETTINGS"
+        echo "  ✓ Skill 注入 Hook 已移除"
+    else
+        rm -f "$TMP"
+        echo "  ! 移除失败"
+    fi
+}
+
 handle_install() {
     show_target_menu
     local choice
@@ -552,6 +646,8 @@ handle_install() {
             configure_statusline
             echo ""
             configure_knowledge_engine
+            echo ""
+            configure_skill_inject
             ;;
         2)
             if [ -d "$OPENCODE_HOME" ]; then
@@ -566,6 +662,8 @@ handle_install() {
             configure_statusline
             echo ""
             configure_knowledge_engine
+            echo ""
+            configure_skill_inject
             echo ""
             if [ -d "$OPENCODE_HOME" ]; then
                 install_for_home "$OPENCODE_HOME" "~/.opencode"
@@ -589,6 +687,8 @@ handle_uninstall() {
             uninstall_for_home "$CLAUDE_HOME" "~/.claude"
             unconfigure_statusline
             unconfigure_knowledge_engine
+            echo ""
+            unconfigure_skill_inject
             ;;
         2)
             if [ -d "$OPENCODE_HOME" ]; then
@@ -601,6 +701,8 @@ handle_uninstall() {
             uninstall_for_home "$CLAUDE_HOME" "~/.claude"
             unconfigure_statusline
             unconfigure_knowledge_engine
+            echo ""
+            unconfigure_skill_inject
             echo ""
             if [ -d "$OPENCODE_HOME" ]; then
                 uninstall_for_home "$OPENCODE_HOME" "~/.opencode"
