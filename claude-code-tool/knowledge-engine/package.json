@@ -1,0 +1,16 @@
+{
+  "name": "knowledge-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "bun run --watch src/index.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "@types/node": "^25.5.2",
+    "typescript": "^5.7.0"
+  }
+}
