@@ -121,6 +121,7 @@ cmd_init() {
     local project_name="${1:-$(get_project_name)}"
     local base_branch="${2:-main}"
     local remote="${3:-origin}"
+    local lm_branch="${4:-lightmerge}"
     local config_path
 
     config_path=$(get_config_path "$project_name")
@@ -134,8 +135,6 @@ cmd_init() {
         echo "如需重置，请手动删除配置文件后重新 init。"
         exit 0
     fi
-
-    local lm_branch="${project_name}-lightmerge"
 
     cat > "$config_path" << EOF
 {
@@ -427,7 +426,7 @@ usage() {
     echo "用法: lightmerge.sh <command> [args]"
     echo ""
     echo "命令:"
-    echo "  init [project-name] [base-branch] [remote]  初始化配置"
+    echo "  init [project-name] [base-branch] [remote] [branch-name]  初始化配置"
     echo "  add <project-name> <branch>                 添加分支并重建"
     echo "  remove <project-name> <branch>              移除分支并重建"
     echo "  rebuild [project-name]                      重建 lightmerge 分支"

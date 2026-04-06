@@ -6,7 +6,7 @@ description: |
   multiple features together. Also use when users want to add or remove branches from a test merge configuration,
   or manage per-project branch merging setups.
 user-invocable: true
-argument-hint: "[add <branch>] [remove <branch>] [list] [init] [rebuild] [push]"
+argument-hint: "[add <branch>] [remove <branch>] [list] [init [branch-name]] [rebuild] [push]"
 model: sonnet
 ---
 
@@ -18,7 +18,7 @@ model: sonnet
 
 | 命令 | 用途 |
 |------|------|
-| `init` | 首次使用，配置 base_branch 和 remote |
+| `init [branch-name]` | 首次使用，配置 base_branch、remote 和 lightmerge 分支名（默认 `lightmerge`） |
 | `add <branch>` | 添加分支到合并列表并重建 |
 | `remove <branch>` | 移除分支并重建 |
 | `rebuild` | 从 base branch 全量重建 lightmerge 分支 |
@@ -32,12 +32,13 @@ model: sonnet
 ```json
 {
   "base_branch": "main",
-  "lightmerge_branch_name": "<project>-lightmerge",
+  "lightmerge_branch_name": "lightmerge",
   "remotes": ["origin"],
   "branches": ["feature/login", "feature/dashboard"]
 }
 ```
 
+- `lightmerge_branch_name` 默认为 `lightmerge`，可在 `init` 时通过第四个参数自定义（如 `my-test-branch`）
 - `remotes` 支持多个远端，如 `["origin", "user-fork"]`
 - 首次使用 `init` 自动生成，后续只需 add/remove 分支
 
@@ -67,6 +68,9 @@ bash <skill-dir>/scripts/lightmerge.sh <command> [project-name] [args...]
 ```
 > /lm init
 配置文件已创建: ~/.claude/lightmerge-data/my-project/lightmerge-branches.json
+
+> /lm init main origin test-integration
+# 使用自定义分支名 test-integration
 
 > /lm add feature/login
 [1/1] 合并 feature/login... 成功
