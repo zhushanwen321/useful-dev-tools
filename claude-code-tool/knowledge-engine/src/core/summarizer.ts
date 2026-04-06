@@ -263,6 +263,7 @@ Files changed: ${info.filesList}
 ${info.diff}
 
 ## 输出要求
+直接输出 JSON，不要执行任何文件操作（创建、修改、删除文件）。
 返回 JSON：
 {
   "should_summarize": true/false,

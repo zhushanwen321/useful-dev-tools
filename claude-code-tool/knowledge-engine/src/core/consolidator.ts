@@ -261,6 +261,7 @@ ${existingFilesSummary}
 ${tempContents}
 
 ## 输出要求
+直接输出 JSON，不要执行任何文件操作（创建、修改、删除文件）。所有合并动作由外部程序根据你的 JSON 输出执行。
 返回 JSON：
 {
   "operations": [

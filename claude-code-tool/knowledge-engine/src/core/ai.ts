@@ -20,11 +20,18 @@ export function isQwenAvailable(): boolean {
 /**
  * 调用 qwen CLI，将 prompt 通过 stdin 传入，返回 stdout 输出
  *
- * --yolo: 自动批准所有操作，避免非交互模式下挂起
+ * --approval-mode plan: 只允许规划，禁止执行任何工具调用（文件写入、命令执行等）
+ * --max-session-turns 1: 限制单轮交互，防止 qwen 自行发起多轮操作
  * --output-format text: 只要纯文本输出，不要 json 包裹
+ * --exclude-tools Write Edit Bash: 额外排除写入和执行类工具作为双保险
  */
 export async function callQwen(prompt: string): Promise<string> {
-  const result = spawnSync('qwen', ['--yolo', '--output-format', 'text'], {
+  const result = spawnSync('qwen', [
+    '--approval-mode', 'plan',
+    '--max-session-turns', '1',
+    '--exclude-tools', 'Write', 'Edit', 'Bash', 'NotebookEdit',
+    '--output-format', 'text',
+  ], {
     input: prompt,
     timeout: QWEN_TIMEOUT,
     encoding: 'utf-8',
