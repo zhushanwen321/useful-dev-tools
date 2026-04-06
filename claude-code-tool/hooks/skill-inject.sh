@@ -47,18 +47,27 @@ if is_superpowers:
         '此规则优先于 skill 自带的目录默认值（如 docs/superpowers/specs/ 等）。'
     )
 
+    # 所有 superpowers skill 通用的文件写入字数控制
+    write_rule = (
+        '\n\n【Skill 注入规则 - 单文件写入字数控制】\n'
+        '评估对单个文件的写入量。如果预计内容可能超过 1000 字（尤其是 plan、spec 等文档），必须拆分写入：\n'
+        '- 单次写入目标为 500 字左右，绝对不要超过 1000 字\n'
+        '- 超过时按模块/章节拆分为独立文件，通过文件间链接（相对路径）互相引用\n'
+        '- 主文档只保留概述和索引，详细内容下沉到子文件\n'
+        '例如：plan.md 只含目标、模块索引、关键决策；各模块详细设计放在 plan-<module>.md 中。'
+    )
+
 # ---- 特定 skill 的额外注入规则 ----
 skill_specific = ''
 
 if 'writing-plans' in skill:
     skill_specific = (
-        '\n\n【Skill 注入规则 - 计划文档拆分】\n'
-        '如果 plan 较大（涉及 3 个以上模块），请按以下流程：\n'
+        '\n\n【Skill 注入规则 - 计划文档拆分流程】\n'
+        '对于涉及多模块的 plan，按以下流程操作：\n'
         '1. 先划分模块，每个模块对应独立详细设计文档（放在对应主题目录下）\n'
         '2. 使用 agent 并行（并发度<=2）编写各模块文档\n'
         '3. 最后用一个 agent 合成精简主文档，链接到其他模块文档\n'
-        '主文档聚焦：目标、架构概览、模块索引、关键决策。\n'
-        '各模块文档包含：详细设计、接口定义、实现步骤。'
+        '主文档聚焦：目标、架构概览、模块索引、关键决策。'
     )
 elif 'subagent-driven-development' in skill:
     skill_specific = (
@@ -69,7 +78,7 @@ elif 'subagent-driven-development' in skill:
 
 # ---- 组合输出 ----
 if is_superpowers:
-    additional = dir_rule + skill_specific
+    additional = dir_rule + write_rule + skill_specific
 
 if additional:
     print(json.dumps({
