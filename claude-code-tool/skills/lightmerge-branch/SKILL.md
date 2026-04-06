@@ -34,13 +34,45 @@ model: sonnet
   "base_branch": "main",
   "lightmerge_branch_name": "lightmerge",
   "remotes": ["origin"],
-  "branches": ["feature/login", "feature/dashboard"]
+  "branches": []
 }
 ```
 
 - `lightmerge_branch_name` 默认为 `lightmerge`，可在 `init` 时通过第四个参数自定义（如 `my-test-branch`）
 - `remotes` 支持多个远端，如 `["origin", "user-fork"]`
 - 首次使用 `init` 自动生成，后续只需 add/remove 分支
+
+### 【重要】首次 init 前必须预览配置
+
+**当配置文件不存在时，执行 `init` 前必须先向用户展示拟生成的配置并等待确认：**
+
+1. 收集信息：从 git 仓库自动推断 `project_name`（目录名）、`base_branch`（检测 main/master）、`remote`（检测 origin）
+2. 展示预览：用代码块格式向用户展示即将生成的完整 JSON 配置
+3. 逐项说明每个字段的来源和默认值，方便用户判断是否需要修改
+4. 询问用户是否有修改意见
+5. 用户确认后才执行 `init` 命令；如有修改则调整参数后再执行
+
+**预览示例（Claude 输出格式）：**
+
+```
+即将为项目 my-project 生成以下 lightmerge 配置：
+
+​```json
+{
+  "base_branch": "main",
+  "lightmerge_branch_name": "lightmerge",
+  "remotes": ["origin"],
+  "branches": []
+}
+​```
+
+字段说明：
+- base_branch: "main" — 从 git remote HEAD 自动检测
+- lightmerge_branch_name: "lightmerge" — 默认值，可自定义
+- remotes: ["origin"] — 从 git remote 自动检测
+
+如有修改请告知，确认无误后将执行 init。
+```
 
 ## 执行方式
 
