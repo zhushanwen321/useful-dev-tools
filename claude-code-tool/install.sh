@@ -1137,7 +1137,7 @@ new_handle_install() {
   done
 
   # 执行 symlink/file 类变更
-  for i in "${!TARGET_DIRS[@]+"${TARGET_DIRS[@]}"}"; do
+  for i in "${!TARGET_DIRS[@]}"; do
     BACKUP_DIR="${TARGET_DIRS[$i]}/bak"
     execute_plan
   done
