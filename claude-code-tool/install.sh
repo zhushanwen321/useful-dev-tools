@@ -36,6 +36,7 @@ get_missing_tools() {
   deps="$(parse_module_dep_tools "$1")"
   [ -z "$deps" ] && return
   local missing=""
+  local dep
   for dep in $(echo "$deps" | tr ',' ' '); do
     if ! command -v "$dep" &>/dev/null; then
       missing="${missing:+$missing,}$dep"
@@ -67,6 +68,8 @@ CLAUDE_HOME="$HOME/.claude"
 OPENCODE_HOME="$HOME/.opencode"
 
 # ======================== 变更计划机制 ========================
+# PLAN 数组格式: "type|arg1|arg2|arg3"
+# 注意: 使用 | 作为分隔符，plan_symlink/plan_backup/plan_setting/plan_message 的参数中不得包含 | 字符
 PLAN=()
 PLAN_BACKUPS=()
 
@@ -212,9 +215,7 @@ plan_install_for_home() {
       symlink)
         local SRC_DIR="$CLAUDE_DIR/$NAME"
         if [ ! -d "$SRC_DIR" ]; then continue; fi
-
-        # 确保目标子目录存在
-        mkdir -p "$HOME_DIR/$NAME"
+        # 目标子目录在 execute_plan 中创建，plan 阶段不执行 mkdir
 
         local CHILD
         for CHILD in "$SRC_DIR"/*; do
@@ -282,7 +283,7 @@ plan_install_for_home() {
         fi
         ;;
 
-      settings|settings*)
+      settings|settings+deps)
         case "$NAME" in
           statusline)
             plan_configure_statusline "$HOME_DIR"
@@ -304,6 +305,7 @@ plan_install_for_home() {
 plan_configure_statusline() {
   local HOME_DIR="$1"
   local SETTINGS="$HOME_DIR/settings.json"
+  # statusline 脚本始终在 ~/.claude 下（由 symlink 安装），所以路径固定
   local COMMAND="\"\$HOME/.claude/custom-tools/statusline.sh\""
 
   if [ -f "$SETTINGS" ]; then
@@ -617,11 +619,22 @@ uninstall_for_home() {
 
         for CHILD in "$TARGET_DIR"/*; do
             [ -e "$CHILD" ] || continue
+            # 跳过非 symlink 文件
+            [ ! -L "$CHILD" ] && continue
             local CHILD_SRC="$SRC_DIR/$(basename "$CHILD")"
             if is_our_symlink "$CHILD" "$CHILD_SRC"; then
                 echo "移除软链接: $CHILD"
                 rm "$CHILD"
                 ((UNINSTALLED_COUNT++))
+            elif [ ! -e "$CHILD" ]; then
+                # 断链(dangling symlink): 源仓库可能已移动，提示用户
+                local LINK_TARGET
+                LINK_TARGET="$(readlink "$CHILD")"
+                if [[ "$LINK_TARGET" == *"$CLAUDE_DIR"* ]]; then
+                    echo "移除断链(源已失效): $CHILD -> $LINK_TARGET"
+                    rm "$CHILD"
+                    ((UNINSTALLED_COUNT++))
+                fi
             fi
         done
     done
@@ -648,7 +661,8 @@ uninstall_for_home() {
 configure_statusline() {
     local _HOME="${1:-$CLAUDE_HOME}"
     local SETTINGS="$_HOME/settings.json"
-    local COMMAND="\"\$HOME/.claude/custom-tools/statusline.sh\""
+    # statusline 脚本通过 symlink 安装到目标目录的 custom-tools/ 下
+    local COMMAND="\"$_HOME/custom-tools/statusline.sh\""
 
     echo "--- 配置 statusline ---"
 
@@ -661,6 +675,7 @@ configure_statusline() {
     if [ ! -f "$SETTINGS" ]; then
         echo "  + 创建 settings.json"
         echo "{\"statusLine\":{\"type\":\"command\",\"command\":$COMMAND}}" | jq . > "$SETTINGS"
+        chmod 600 "$SETTINGS"
         return
     fi
 
@@ -684,7 +699,8 @@ configure_statusline() {
 }
 
 unconfigure_statusline() {
-    local SETTINGS="$CLAUDE_HOME/settings.json"
+    local _HOME="${1:-$CLAUDE_HOME}"
+    local SETTINGS="$_HOME/settings.json"
     local COMMAND="\"\$HOME/.claude/custom-tools/statusline.sh\""
 
     echo "--- 移除 statusline 配置 ---"
@@ -746,7 +762,7 @@ configure_knowledge_engine() {
 
     # 安装依赖
     echo "  + 安装知识引擎依赖..."
-    (cd "$KNOWLEDGE_ENGINE_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install) || {
+    (cd "$KNOWLEDGE_ENGINE_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install --no-save) || {
         echo "  ! 依赖安装失败"
         return 1
     }
@@ -849,7 +865,8 @@ configure_knowledge_engine() {
 }
 
 unconfigure_knowledge_engine() {
-    local SETTINGS="$CLAUDE_HOME/settings.json"
+    local _HOME="${1:-$CLAUDE_HOME}"
+    local SETTINGS="$_HOME/settings.json"
 
     echo "--- 移除知识引擎配置 ---"
 
@@ -923,6 +940,7 @@ configure_skill_inject() {
     if [ ! -f "$SETTINGS" ]; then
         echo "  + 创建 settings.json"
         echo "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Skill\",\"hooks\":[{\"type\":\"command\",\"command\":$HOOK_CMD,\"timeout\":5}]}]}}" | jq . > "$SETTINGS"
+        chmod 600 "$SETTINGS"
         return
     fi
 
@@ -968,7 +986,8 @@ configure_skill_inject() {
 }
 
 unconfigure_skill_inject() {
-    local SETTINGS="$CLAUDE_HOME/settings.json"
+    local _HOME="${1:-$CLAUDE_HOME}"
+    local SETTINGS="$_HOME/settings.json"
     local HOOK_CMD="bash \"\$HOME/.claude/hooks/skill-inject.sh\""
 
     echo "--- 移除 Skill 注入 Hook ---"
@@ -1099,7 +1118,7 @@ new_handle_install() {
       if ! is_module_selected "$NAME"; then continue; fi
 
       case "$TYPE" in
-        settings|settings*)
+        settings|settings+deps)
           backup_settings "$HOME_DIR/settings.json"
           case "$NAME" in
             statusline)
@@ -1118,8 +1137,10 @@ new_handle_install() {
   done
 
   # 执行 symlink/file 类变更
-  BACKUP_DIR="$CLAUDE_HOME/bak"
-  execute_plan
+  for i in "${!TARGET_DIRS[@]+"${TARGET_DIRS[@]}"}"; do
+    BACKUP_DIR="${TARGET_DIRS[$i]}/bak"
+    execute_plan
+  done
 
   # 回滚提示
   if [ ${#PLAN_BACKUPS[@]} -gt 0 ]; then
@@ -1128,23 +1149,10 @@ new_handle_install() {
     local BACKUP
     for BACKUP in "${PLAN_BACKUPS[@]+"${PLAN_BACKUPS[@]}"}"; do
       local ORIG
-      ORIG="$(basename "$BACKUP" | sed 's/_[0-9_]*$//')"
-      echo "  cp $BACKUP ~/.claude/$ORIG"
+      ORIG="$(basename "$BACKUP" | sed -E 's/_[0-9]{8}_[0-9]{6}$//')"
+      echo "  cp $BACKUP $CLAUDE_HOME/$ORIG"
     done
   fi
-
-  # 记录日志
-  local SELECTED_NAMES=""
-  for MODULE in "${MODULES[@]+"${MODULES[@]}"}"; do
-    local NAME
-    NAME="$(parse_module_name "$MODULE")"
-    if is_module_selected "$NAME"; then
-      SELECTED_NAMES="${SELECTED_NAMES:+$SELECTED_NAMES, }$NAME"
-    fi
-  done
-  for HOME_NAME in "${TARGET_NAMES[@]+"${TARGET_NAMES[@]}"}"; do
-    log_install "INSTALL to $HOME_NAME" "$SELECTED_NAMES"
-  done
 
   echo ""
   echo "安装完成。"
