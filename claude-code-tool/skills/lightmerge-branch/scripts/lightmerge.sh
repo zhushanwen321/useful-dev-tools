@@ -43,14 +43,14 @@ json_get() {
     local key="$2"
     python3 -c "
 import json, sys
-with open('$config_path') as f:
+with open(sys.argv[1]) as f:
     data = json.load(f)
-result = data.get('$key', '')
+result = data.get(sys.argv[2], '')
 if isinstance(result, list):
     print(json.dumps(result))
 else:
     print(result)
-"
+" "$config_path" "$key"
 }
 
 json_set() {
@@ -58,14 +58,14 @@ json_set() {
     local key="$2"
     local value="$3"
     python3 -c "
-import json
-with open('$config_path') as f:
+import json, sys
+with open(sys.argv[1]) as f:
     data = json.load(f)
-data['$key'] = $value
-with open('$config_path', 'w') as f:
+data[sys.argv[2]] = json.loads(sys.argv[3])
+with open(sys.argv[1], 'w') as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
 print(json.dumps(data, indent=2, ensure_ascii=False))
-"
+" "$config_path" "$key" "$value"
 }
 
 json_array_append() {
@@ -73,20 +73,20 @@ json_array_append() {
     local key="$2"
     local new_item="$3"
     python3 -c "
-import json
-with open('$config_path') as f:
+import json, sys
+with open(sys.argv[1]) as f:
     data = json.load(f)
-arr = data.get('$key', [])
-if '$new_item' not in arr:
-    arr.append('$new_item')
-    data['$key'] = arr
-    with open('$config_path', 'w') as f:
+arr = data.get(sys.argv[2], [])
+if sys.argv[3] not in arr:
+    arr.append(sys.argv[3])
+    data[sys.argv[2]] = arr
+    with open(sys.argv[1], 'w') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     print(json.dumps(data, indent=2, ensure_ascii=False))
 else:
-    print('已存在: $new_item')
+    print('已存在:', sys.argv[3])
     print(json.dumps(data, indent=2, ensure_ascii=False))
-"
+" "$config_path" "$key" "$new_item"
 }
 
 json_array_remove() {
@@ -94,20 +94,20 @@ json_array_remove() {
     local key="$2"
     local item="$3"
     python3 -c "
-import json
-with open('$config_path') as f:
+import json, sys
+with open(sys.argv[1]) as f:
     data = json.load(f)
-arr = data.get('$key', [])
-if '$item' in arr:
-    arr.remove('$item')
-    data['$key'] = arr
-    with open('$config_path', 'w') as f:
+arr = data.get(sys.argv[2], [])
+if sys.argv[3] in arr:
+    arr.remove(sys.argv[3])
+    data[sys.argv[2]] = arr
+    with open(sys.argv[1], 'w') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     print(json.dumps(data, indent=2, ensure_ascii=False))
 else:
-    print('不存在: $item')
+    print('不存在:', sys.argv[3])
     print(json.dumps(data, indent=2, ensure_ascii=False))
-"
+" "$config_path" "$key" "$item"
 }
 
 # ─── 获取项目名（git 仓库目录名）───
@@ -257,14 +257,32 @@ for item in data:
     echo "更新 ${base_branch}..."
     local fetched=false
     for remote in "${remotes[@]}"; do
-        if git fetch "${remote}" "${base_branch}" 2>/dev/null; then
+        if git fetch "${remote}" "${base_branch}"; then
             fetched=true
             break
         fi
     done
+    if [[ "$fetched" == false ]]; then
+        echo "  警告: 未能从任何 remote 拉取 ${base_branch}，使用本地版本"
+    fi
     git checkout "${base_branch}" 2>/dev/null || git checkout "FETCH_HEAD" -b "${base_branch}" 2>/dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "错误: 无法切换到 ${base_branch}" >&2
+        exit 1
+    fi
     for remote in "${remotes[@]}"; do
         git pull "${remote}" "${base_branch}" 2>/dev/null && break || true
+    done
+
+    # 预取所有待合并分支的最新代码
+    echo "预取待合并分支..."
+    for branch in "${branches[@]}"; do
+        # 只 fetch 远端上的分支（本地分支已最新）
+        if ! git show-ref --verify --quiet "refs/heads/${branch}" 2>/dev/null; then
+            for remote in "${remotes[@]}"; do
+                git fetch "${remote}" "${branch}" 2>/dev/null && break || true
+            done
+        fi
     done
 
     # 删除旧的 lightmerge 分支
@@ -380,35 +398,47 @@ _write_rebuild_state() {
     local state_path="${state_dir}/.rebuild-state.json"
     mkdir -p "$state_dir"
 
+    # 用临时文件传递数据，避免 shell 变量注入 Python 代码
+    local tmpfile
+    tmpfile=$(mktemp)
+    printf '%s\n' "$remotes_csv" > "$tmpfile.remotes"
+    printf '%s\n' "$branches_csv" > "$tmpfile.branches"
+
     if [[ "$mode" == "full" ]]; then
-        python3 << PYEOF
-import json
-state_path = "$state_path"
+        python3 - "$state_path" "$project_name" "$base_branch" "$lm_branch" "$original_branch" "$next_index" "$conflict_branch" "$tmpfile" << 'PYEOF'
+import json, sys
+state_path, project_name, base_branch, lm_branch = sys.argv[1:5]
+original_branch, next_index, conflict_branch, tmpfile = sys.argv[5:9]
+with open(tmpfile + ".remotes") as f:
+    remotes = [l.strip() for l in f if l.strip()]
+with open(tmpfile + ".branches") as f:
+    branches = [l.strip() for l in f if l.strip()]
 state = {
-    'project_name': "$project_name",
-    'base_branch': "$base_branch",
-    'lm_branch': "$lm_branch",
-    'original_branch': "$original_branch",
-    'remotes': [r for r in """$remotes_csv""".strip().split('\n') if r],
-    'branches': [b for b in """$branches_csv""".strip().split('\n') if b],
-    'next_index': int("$next_index"),
-    'conflict_branch': "$conflict_branch"
+    'project_name': project_name,
+    'base_branch': base_branch,
+    'lm_branch': lm_branch,
+    'original_branch': original_branch,
+    'remotes': remotes,
+    'branches': branches,
+    'next_index': int(next_index),
+    'conflict_branch': conflict_branch
 }
 with open(state_path, 'w') as f:
     json.dump(state, f, indent=2, ensure_ascii=False)
 PYEOF
     else
-        python3 << PYEOF
-import json
-state_path = "$state_path"
-with open(state_path) as f:
+        python3 - "$state_path" "$next_index" "$conflict_branch" << 'PYEOF'
+import json, sys
+with open(sys.argv[1]) as f:
     state = json.load(f)
-state['next_index'] = int("$next_index")
-state['conflict_branch'] = "$conflict_branch"
-with open(state_path, 'w') as f:
+state['next_index'] = int(sys.argv[2])
+state['conflict_branch'] = sys.argv[3]
+with open(sys.argv[1], 'w') as f:
     json.dump(state, f, indent=2, ensure_ascii=False)
 PYEOF
     fi
+
+    rm -f "$tmpfile" "$tmpfile.remotes" "$tmpfile.branches"
 }
 
 _read_rebuild_state() {
@@ -467,9 +497,19 @@ _do_merge_loop() {
         echo ""
         echo "[$((i+1))/${total}] 合并 ${branch}..."
 
-        # 检查分支是否存在（本地或远端）
-        if ! git show-ref --verify --quiet "refs/heads/${branch}" && \
-           ! git show-ref --verify --quiet "refs/remotes/origin/${branch}"; then
+        # 检查分支是否存在（本地或配置的任一远端）
+        local branch_found=false
+        if git show-ref --verify --quiet "refs/heads/${branch}" 2>/dev/null; then
+            branch_found=true
+        else
+            for remote in "${remotes_arr[@]}"; do
+                if git show-ref --verify --quiet "refs/remotes/${remote}/${branch}" 2>/dev/null; then
+                    branch_found=true
+                    break
+                fi
+            done
+        fi
+        if [[ "$branch_found" == false ]]; then
             echo "  警告: 分支 ${branch} 不存在，跳过"
             failed_branches+=("${branch} (不存在)")
             fail_count=$((fail_count + 1))
@@ -477,8 +517,14 @@ _do_merge_loop() {
         fi
 
         # 合并（不自动提交，以便检查冲突）
-        if git merge --no-commit "${branch}" 2>/dev/null; then
-            git commit -m "lightmerge: 合并 ${branch}" 2>/dev/null || true
+        if git merge --no-commit "${branch}"; then
+            if ! git commit -m "lightmerge: 合并 ${branch}" 2>&1; then
+                echo "  失败: commit 被拒绝（可能是 pre-commit hook 错误）"
+                git merge --abort 2>/dev/null || true
+                failed_branches+=("${branch} (commit 失败)")
+                fail_count=$((fail_count + 1))
+                continue
+            fi
             echo "  成功"
             success_count=$((success_count + 1))
             # 更新状态文件中的 next_index
@@ -532,7 +578,9 @@ _do_merge_loop() {
         for remote in "${remotes_arr[@]}"; do
             echo ""
             echo "推送到 ${remote}/${lm_branch}..."
-            git push -u "${remote}" "${lm_branch}" 2>/dev/null && echo "推送成功" || echo "推送失败"
+            if ! git push -u "${remote}" "${lm_branch}"; then
+                echo "  推送失败！请检查网络或权限"
+            fi
         done
     fi
 
@@ -540,7 +588,9 @@ _do_merge_loop() {
     if [[ -n "$original_branch" ]] && [[ "$original_branch" != "$lm_branch" ]]; then
         echo ""
         echo "切回原分支: ${original_branch}"
-        git checkout "$original_branch" 2>/dev/null || true
+        if ! git checkout "$original_branch" 2>/dev/null; then
+            echo "  警告: 无法切回 ${original_branch}（可能有未提交的修改），当前仍在 ${lm_branch}"
+        fi
     fi
 
     # 清理状态文件

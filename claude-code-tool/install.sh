@@ -852,14 +852,14 @@ configure_knowledge_engine() {
         return 1
     fi
 
-    # 配置 crontab（可选）
+    # 配置 crontab
     local CRON_SCRIPT="$KNOWLEDGE_ENGINE_DIR/scripts/cron-maintenance.sh"
-    local CRON_ENTRY="0 23 * * * $CRON_SCRIPT"
+    local CRON_MARKER="# knowledge-engine-cron"
+    local CRON_ENTRY="0 23 * * * $CRON_SCRIPT $CRON_MARKER"
 
-    echo ""
-    echo "  可选: 添加定时维护任务"
-    echo "  运行以下命令添加 crontab:"
-    echo "    (crontab -l 2>/dev/null; echo '$CRON_ENTRY') | crontab -"
+    # 移除旧条目（如果有），再添加新条目，避免重复
+    crontab -l 2>/dev/null | grep -v "$CRON_MARKER" | { cat; echo "$CRON_ENTRY"; } | crontab -
+    echo "  ✓ crontab 已配置（每天 23:00 执行知识库维护）"
 
     return 0
 }
@@ -921,6 +921,13 @@ unconfigure_knowledge_engine() {
     fi
 
     echo "  注意: 知识库数据 ($CLAUDE_HOME/knowledge/) 未删除，如需手动删除"
+
+    # 移除 crontab 条目
+    local CRON_MARKER="# knowledge-engine-cron"
+    if crontab -l 2>/dev/null | grep -q "$CRON_MARKER"; then
+        crontab -l 2>/dev/null | grep -v "$CRON_MARKER" | crontab -
+        echo "  ✓ crontab 条目已移除"
+    fi
 }
 
 # ======================== Skill 注入 Hook 配置 ========================

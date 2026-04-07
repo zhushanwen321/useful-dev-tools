@@ -24,6 +24,9 @@ import { callQwen, isQwenAvailable } from './ai.js'
 // 并发锁标记文件超过此时间视为过期（10 分钟），防止异常退出后死锁
 const LOCK_EXPIRE_MS = 10 * 60 * 1000
 
+// 单次 consolidate 最多处理的 temp 文件数，防止 prompt 过大导致超时
+const MAX_FILES_PER_CONSOLIDATE = 5
+
 // 索引文件排除列表，避免把索引本身编入索引
 const INDEX_FILES = new Set(['index.md', 'tag_index.md'])
 
@@ -68,30 +71,30 @@ export async function consolidate(projectRoot: string): Promise<void> {
     const existingFilesSummary = scanExistingFilesSummary(formalDir)
 
     if (isQwenAvailable()) {
-      // AI 路径：让 AI 决定如何归类和合并
-      const tempContents = readAllTempFiles(tempDir, currentTempFiles)
+      // AI 路径：分批处理，防止 prompt 过大导致超时
+      const batchFiles = currentTempFiles.slice(0, MAX_FILES_PER_CONSOLIDATE)
+      const tempContents = readAllTempFiles(tempDir, batchFiles)
       const prompt = buildConsolidatePrompt(
         formalStructure,
         existingFilesSummary,
         tempContents,
         config.categories,
       )
-      const rawOutput = await callQwen(prompt)
+      const rawOutput = await callQwen(prompt, { timeout: 120000 })
       const result = parseConsolidateResult(rawOutput)
 
       if (result) {
-        executeOperations(formalDir, result.operations, config.categories, currentTempFiles)
+        executeOperations(formalDir, result.operations, config.categories, batchFiles)
       }
+      // 只清理本批次处理的文件，剩余留给下次 consolidate
+      generateAllIndexes(formalDir, config.categories)
+      cleanupTempFiles(tempDir, batchFiles)
     } else {
       // 降级路径：按 topics 字段做简单目录归类，不执行合并
       fallbackClassify(tempDir, formalDir, currentTempFiles, config.categories)
+      generateAllIndexes(formalDir, config.categories)
+      cleanupTempFiles(tempDir, currentTempFiles)
     }
-
-    // 索引生成是纯本地的，不依赖 AI
-    generateAllIndexes(formalDir, config.categories)
-
-    // 清理已处理的临时知识文件
-    cleanupTempFiles(tempDir, currentTempFiles)
   } finally {
     // 无论成功失败都必须释放锁
     releaseLock(lockPath)
@@ -283,18 +286,64 @@ ${tempContents}
 - update 操作更新已有文件内容
 - create 操作创建新文件
 - 每个文件的 content 应包含完整的知识内容，不要省略
-- filename 使用小写字母、数字和连字符，.md 结尾`
+- filename 使用小写字母、数字和连字符，.md 结尾，不要包含目录路径前缀`
 }
 
 // ======================== AI 响应解析 ========================
 
 /**
+ * 从可能包含 markdown 代码块、前导文字等噪声的文本中提取 JSON 对象
+ *
+ * 策略：找到第一个 { 后，通过花括号配对定位完整的 JSON 对象。
+ * 这样即使 content 中包含 ``` 代码块也不会干扰提取。
+ */
+function extractJsonString(raw: string): string {
+  const start = raw.indexOf('{')
+  if (start === -1) return raw.trim()
+
+  let depth = 0
+  let inString = false
+  let escape = false
+
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i]
+
+    if (escape) {
+      escape = false
+      continue
+    }
+    if (ch === '\\') {
+      escape = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        return raw.substring(start, i + 1)
+      }
+    }
+  }
+
+  // 花括号未配对，回退到原始行为
+  return raw.substring(start).trim()
+}
+
+/**
  * 解析 AI 返回的合并指令，容错处理各种异常格式
+ *
+ * 注意：不能用 ``` 代码块正则提取，因为 AI 返回的 JSON content 字段中
+ * 可能包含 markdown 代码块（如 ```python），会干扰外层正则匹配。
+ * 改用花括号配对来定位 JSON 对象边界。
  */
 function parseConsolidateResult(raw: string): ConsolidateResult | null {
-  // AI 经常会在 JSON 外包裹 markdown 代码块
-  const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, raw]
-  const jsonStr = (jsonMatch[1] || raw).trim()
+  const jsonStr = extractJsonString(raw)
 
   try {
     const parsed = JSON.parse(jsonStr)
@@ -347,7 +396,9 @@ function executeOperations(
     const catDir = join(formalDir, category)
     ensureDir(catDir)
 
-    const filePath = join(catDir, op.filename)
+    // 防御 AI 返回带路径前缀的 filename
+    const filename = op.filename.split('/').pop() || op.filename
+    const filePath = join(catDir, filename)
     const now = new Date().toISOString()
 
     if (op.action === 'create') {

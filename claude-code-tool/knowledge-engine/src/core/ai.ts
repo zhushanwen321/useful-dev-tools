@@ -1,7 +1,9 @@
 import { spawnSync } from 'node:child_process'
 
-// qwen CLI 的超时时间，30 秒足够处理大部分知识总结任务
-const QWEN_TIMEOUT = 30000
+// qwen CLI 默认超时，summarize 等短 prompt 使用
+const QWEN_TIMEOUT_DEFAULT = 30000
+// consolidate 等长 prompt 需要更长超时
+const QWEN_TIMEOUT_CONSOLIDATE = 120000
 
 /**
  * 检测 qwen CLI 是否可用
@@ -21,19 +23,18 @@ export function isQwenAvailable(): boolean {
  * 调用 qwen CLI，将 prompt 通过 stdin 传入，返回 stdout 输出
  *
  * --approval-mode plan: 只允许规划，禁止执行任何工具调用（文件写入、命令执行等）
- * --max-session-turns 1: 限制单轮交互，防止 qwen 自行发起多轮操作
  * --output-format text: 只要纯文本输出，不要 json 包裹
  * --exclude-tools Write Edit Bash: 额外排除写入和执行类工具作为双保险
  */
-export async function callQwen(prompt: string): Promise<string> {
+export async function callQwen(prompt: string, options?: { timeout?: number }): Promise<string> {
+  const timeout = options?.timeout ?? QWEN_TIMEOUT_DEFAULT
   const result = spawnSync('qwen', [
     '--approval-mode', 'plan',
-    '--max-session-turns', '1',
     '--exclude-tools', 'Write', 'Edit', 'Bash', 'NotebookEdit',
     '--output-format', 'text',
   ], {
     input: prompt,
-    timeout: QWEN_TIMEOUT,
+    timeout,
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   })
