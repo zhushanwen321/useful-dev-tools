@@ -6,11 +6,10 @@
 """
 
 import json
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from urllib.request import Request, urlopen
-from urllib.error import URLError
 
 CACHE_FILE = Path.home() / ".claude" / "statusline_cache.json"
 
@@ -43,6 +42,7 @@ def save_cache(cache: dict):
 # Zhipu — HTTP 获取 + 处理
 # ═══════════════════════════════════════════════════════════════
 def fetch_zhipu() -> dict | None:
+    """用 curl 调用 zhipu API（避免 macOS Python SSL 证书缺失问题）"""
     token_file = Path.home() / ".claude" / ".zhipu_auth_token"
     if not token_file.exists():
         return None
@@ -50,21 +50,23 @@ def fetch_zhipu() -> dict | None:
     if not token:
         return None
     try:
-        req = Request(
-            "https://bigmodel.cn/api/monitor/usage/quota/limit",
-            headers={
-                "accept": "application/json, text/plain, */*",
-                "authorization": token,
-                "bigmodel-organization": "org-8F82302F73594F44B2bdCc5A57BCfD1f",
-                "bigmodel-project": "proj_8E86D38C8211410Baa4852408071D1F2",
-                "referer": "https://bigmodel.cn/usercenter/glm-coding/usage",
-                "user-agent": "Mozilla/5.0",
-            },
+        r = subprocess.run(
+            [
+                "curl", "-s", "--max-time", "5",
+                "https://bigmodel.cn/api/monitor/usage/quota/limit",
+                "-H", "accept: application/json, text/plain, */*",
+                "-H", f"authorization: {token}",
+                "-H", "bigmodel-organization: org-8F82302F73594F44B2bdCc5A57BCfD1f",
+                "-H", "bigmodel-project: proj_8E86D38C8211410Baa4852408071D1F2",
+                "-H", "referer: https://bigmodel.cn/usercenter/glm-coding/usage",
+                "-H", "user-agent: Mozilla/5.0",
+            ],
+            capture_output=True, text=True, timeout=8,
         )
-        with urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read())
-        return _process_zhipu(data)
-    except (URLError, OSError, json.JSONDecodeError):
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        return _process_zhipu(json.loads(r.stdout))
+    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
         return None
 
 
