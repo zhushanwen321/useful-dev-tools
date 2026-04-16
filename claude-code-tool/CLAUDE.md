@@ -97,6 +97,7 @@
 #### 容易出错的地方
 superpowers有很多在执行完要review的地方，经常会被错误地执行为code-reviewer，这是错误的！
 真正应该执行的是 general-purpose 的 agent，而不是 code-reviewer 或者 superpowers:code-reviewer。
+只有 subagent-driven-development 中的代码使用 superpowers:code-reviewer 这个agent （注意，也不是 code-reviewer）
 需要仔细分辨使用，不要错误使用。
 
 ---
