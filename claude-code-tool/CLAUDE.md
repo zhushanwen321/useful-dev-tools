@@ -81,10 +81,11 @@
 
 #### 目录规范
 所有 superpowers 生成的文件存放在统一目录结构：
-- 主目录：`{project_root}/.claude/.superpowers/`
+- 主目录：`{project_root}/.superpowers/`
 - 子目录按主题划分，命名格式：`${yyyy-MM-dd}-${主题简短标题}`
+  例如：`2026-04-14-core-proxy`、`2026-04-16-auto-retry`
+- 主题目录下存放该主题的文档（spec.md、plan.md 等）
 - 不同主题使用不同子目录，禁止混放
-- 同一主题多版本用 v2、v3 后缀区分
 - **此规则覆盖 skill 自带的目录默认值（如 `docs/superpowers/specs/` 等）**
 
 #### 文档精简拆分
