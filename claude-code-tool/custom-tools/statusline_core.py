@@ -35,6 +35,34 @@ class C:
 # ═══════════════════════════════════════════════════════════════
 CACHE_FILE = Path.home() / ".claude" / "statusline_cache.json"
 CACHE_TTL = 120  # 秒
+COMPACT_THRESHOLD = 100
+ERROR_LOG = Path.home() / ".claude" / "statusline_errors.log"
+
+
+def _detect_width() -> int:
+    """检测终端宽度，检测不到时默认窄屏"""
+    cols = os.environ.get("COLUMNS", "")
+    if cols.isdigit():
+        return int(cols)
+    try:
+        import shutil
+        return shutil.get_terminal_size().columns
+    except (ValueError, OSError):
+        return 80
+
+
+def _log_error(section: str, e: Exception):
+    """追加错误日志，单条不超过 500 字，自动轮转（保留最近 100 条）"""
+    import traceback
+    msg = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{section}] {type(e).__name__}: {e}\n{traceback.format_exc()}\n"
+    try:
+        if ERROR_LOG.exists() and ERROR_LOG.stat().st_size > 50_000:
+            lines = ERROR_LOG.read_text().splitlines()[-100:]
+            ERROR_LOG.write_text("\n".join(lines) + "\n")
+        with open(ERROR_LOG, "a") as f:
+            f.write(msg[:500])
+    except OSError:
+        pass
 
 
 def read_cache() -> dict:
@@ -238,6 +266,22 @@ def _fmt_zhipu(z: dict | None) -> str:
     return s
 
 
+def _fmt_zhipu_compact(z: dict | None) -> str:
+    if not z:
+        return ""
+    label = z.get("label", "Z.ai")
+    tp = z.get("tokens_pct", 0)
+    parts = [f"{C.DG}{label}{C.D} {C.WH}{tp}%{C.D}"]
+    mp = z.get("time_pct", 0)
+    if mp:
+        mc = z.get("time_current", 0)
+        parts.append(f"{C.DG}mcp{C.D} {C.WH}{mp}%{C.D} {C.GM}({mc}){C.D}")
+    rt = z.get("reset_time", "")
+    if rt:
+        parts.append(f"{C.DG}reset{C.D} {C.Y}{rt}{C.D}")
+    return f" {C.NSEP} ".join(parts)
+
+
 def _fmt_tavily(t: dict | None) -> str:
     if not t:
         return ""
@@ -287,40 +331,88 @@ def main():
     session_id = data.get("session_id", "")
     transcript_path = data.get("transcript_path", "")
 
-    # --- 读缓存（无 HTTP，纯文件读取）---
-    cache = read_cache()
-    zhipu = cache.get("zhipu")
-    tavily = cache.get("tavily")
+    # --- 读缓存 ---
+    try:
+        cache = read_cache()
+        zhipu = cache.get("zhipu")
+        tavily = cache.get("tavily")
+    except Exception as e:
+        _log_error("cache", e)
+        zhipu = None
+        tavily = None
 
-    # --- 本地计算 ---
-    cur_spd, day_avg, d7_avg, d30_avg = update_token_speed(
-        output_tokens, total_api_dur, model)
-    sess = get_session_info(transcript_path, session_id)
+    # --- Token 速度 ---
+    try:
+        cur_spd, day_avg, d7_avg, d30_avg = update_token_speed(
+            output_tokens, total_api_dur, model)
+    except Exception as e:
+        _log_error("token_speed", e)
+        cur_spd = day_avg = d7_avg = d30_avg = 0
 
-    dir_display = _dir_display(project_dir, current_dir)
-    buf = 16
-    usable = 100 - buf
-    load_pct = min(int(used_pct * 100 / usable), 100) if usable > 0 else 100
+    # --- Session 信息 ---
+    try:
+        sess = get_session_info(transcript_path, session_id)
+    except Exception as e:
+        _log_error("session_info", e)
+        sess = {"start": "", "last_llm": "", "last_resp": ""}
 
-    git_branch = _get_git_branch(current_dir, worktree_name, worktree_branch)
+    # --- Git 分支 ---
+    try:
+        git_branch = _get_git_branch(current_dir, worktree_name, worktree_branch)
+    except Exception as e:
+        _log_error("git_branch", e)
+        git_branch = ""
 
     # --- 格式化输出 ---
-    identity = _build_identity(dir_display, worktree_name, worktree_branch,
-                               git_branch, agent_name, model)
+    try:
+        width = _detect_width()
+        dir_display = _dir_display(project_dir, current_dir)
+        identity = _build_identity(dir_display, worktree_name, worktree_branch,
+                                   git_branch, agent_name, model)
+        buf = 16
+        usable = 100 - buf
+        load_pct = min(int(used_pct * 100 / usable), 100) if usable > 0 else 100
 
-    ctx = f"{C.DG}ctx{C.D} {build_bar(used_pct, 8)} {C.WH}{used_pct}%{C.D}"
-    load = f"{C.DG}load{C.D} {build_bar(load_pct, 8)} {C.WH}{load_pct}%{C.D}"
-    metrics = f"{ctx} {C.NSEP} {load}"
-    zhipu_str = _fmt_zhipu(zhipu)
-    if zhipu_str:
-        metrics += f" {C.SEP} {zhipu_str}"
+        if width >= COMPACT_THRESHOLD:
+            # 宽屏：带进度条
+            ctx = f"{C.DG}ctx{C.D} {build_bar(used_pct, 8)} {C.WH}{used_pct}%{C.D}"
+            load = f"{C.DG}load{C.D} {build_bar(load_pct, 8)} {C.WH}{load_pct}%{C.D}"
+            metrics = f"{ctx} {C.NSEP} {load}"
+            zhipu_str = _fmt_zhipu(zhipu)
+            if zhipu_str:
+                metrics += f" {C.SEP} {zhipu_str}"
+            tavily_line = _fmt_tavily(tavily)
+            line3 = _build_line3(cur_spd, day_avg, d7_avg, d30_avg, sess,
+                                 total_dur, session_id)
+            lines = [l for l in [identity, metrics, tavily_line, line3] if l]
+        else:
+            # 窄屏：纯数字，确保不换行
+            ctx = f"{C.DG}ctx{C.D} {C.WH}{used_pct}%{C.D}"
+            load = f"{C.DG}load{C.D} {C.WH}{load_pct}%{C.D}"
+            metrics = f"{ctx} {C.NSEP} {load}"
+            zhipu_str = _fmt_zhipu_compact(zhipu)
+            if zhipu_str:
+                metrics += f" {C.SEP} {zhipu_str}"
+            tavily_line = _fmt_tavily(tavily)
+            sp = []
+            if cur_spd > 0: sp.append(f"{C.G}{cur_spd}{C.D}t/s")
+            if day_avg > 0: sp.append(f"day {C.BC}{day_avg}{C.D}")
+            if d7_avg > 0: sp.append(f"7d {C.CY}{d7_avg}{C.D}")
+            tp = []
+            if total_dur > 0: tp.append(f"{C.DG}run{C.D} {C.G}{format_duration(total_dur)}{C.D}")
+            if sess["last_llm"]:
+                tp.append(f"{C.DG}last{C.D} {C.Y}{sess['last_llm']}{C.D}")
+            info_parts = []
+            if sp: info_parts.append(f" {C.NSEP} ".join(sp))
+            if tp: info_parts.append(f" {C.NSEP} ".join(tp))
+            if session_id: info_parts.append(f"{C.GM}{session_id}{C.D}")
+            line3 = f" {C.SEP} ".join(info_parts)
+            lines = [l for l in [identity, metrics, tavily_line, line3] if l]
 
-    tavily_line = _fmt_tavily(tavily)
-    line3 = _build_line3(cur_spd, day_avg, d7_avg, d30_avg, sess,
-                         total_dur, session_id)
-
-    lines = [l for l in [identity, metrics, tavily_line, line3] if l]
-    print("\n".join(lines))
+        print("\n".join(lines))
+    except Exception as e:
+        _log_error("format", e)
+        print(f"{C.BGB}{model}{C.D} {C.SEP} {C.GM}{session_id}{C.D}")
 
 
 def _dir_display(project_dir: str, current_dir: str) -> str:
@@ -385,4 +477,12 @@ def _build_line3(cur_spd, day_avg, d7, d30, sess, total_dur, session_id) -> str:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        _log_error("main", e)
+        try:
+            # stdin 可能已被 main() 消费，尝试重新读取会失败，直接输出兜底
+            print(f"{C.Y}statusline degraded{C.D}")
+        except Exception:
+            pass
