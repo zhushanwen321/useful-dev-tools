@@ -1,19 +1,27 @@
 #!/bin/bash
-# cron 维护脚本：定期执行知识库的总结和清理
+# cron 维护脚本：定期执行所有项目的知识库总结和清理
 # 用法：添加到 crontab，例如每天 23:00 执行
-# 0 23 * * * /path/to/knowledge-engine/scripts/cron-maintenance.sh
+# 0 23 * * * /path/to/knowledge-engine/scripts/cron-maintenance.sh >> ~/.claude/knowledge/maintenance.log 2>&1
 
 set -euo pipefail
 
 # crontab 的 PATH 非常精简（通常只有 /usr/bin:/bin），
-# 需要补充用户级工具路径（bun、qwen 等通过 npm/nvm 安装的工具在此）
+# 需要补充用户级工具路径（bun、claude 等通过 npm/nvm 安装的工具在此）
 export PATH="$HOME/.bun/bin:$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node/" 2>/dev/null | tail -1)/bin:$PATH"
 
 ENGINE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ENGINE_DIR"
 
-# 执行总结和沉淀
-bun run src/cli.ts process
+LOG_FILE="$HOME/.claude/knowledge/maintenance.log"
+mkdir -p "$(dirname "$LOG_FILE")"
 
-# 执行 changelog 清理
-bun run src/cli.ts cleanup
+echo "========== $(date '+%Y-%m-%d %H:%M:%S') cron-maintenance 开始 ==========" >> "$LOG_FILE"
+
+# 遍历所有项目执行总结和沉淀
+bun run src/cli.ts process-all >> "$LOG_FILE" 2>&1
+
+# 遍历所有项目执行 changelog 清理
+bun run src/cli.ts cleanup-all >> "$LOG_FILE" 2>&1
+
+echo "========== $(date '+%Y-%m-%d %H:%M:%S') cron-maintenance 结束 ==========" >> "$LOG_FILE"
+echo "" >> "$LOG_FILE"

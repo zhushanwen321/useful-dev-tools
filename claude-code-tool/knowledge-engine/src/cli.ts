@@ -13,8 +13,9 @@
  *   bun run src/cli.ts cleanup      # 清理已沉淀的 changelog 条目
  */
 
-import { readFileSync, existsSync, writeFileSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { record } from './core/recorder.js'
 import { summarize } from './core/summarizer.js'
@@ -250,6 +251,152 @@ function handleCleanup(projectRoot: string): void {
   }
 }
 
+// ======================== slug 反转 ========================
+
+/**
+ * 将 slug 反转为项目绝对路径
+ *
+ * slug 规则：去掉 /Users/ 后路径中 / 替换为 -，但路径本身可能含有 -，
+ * 所以不能简单 replace(/-/g, '/')，需要尝试所有拆分方式找到真实存在的路径。
+ */
+const slugCache = new Map<string, string | null>()
+
+function slugToProjectPath(slug: string): string | null {
+  if (slugCache.has(slug)) return slugCache.get(slug)!
+
+  const parts = slug.split('-')
+  const result = tryResolveSlug(parts)
+  slugCache.set(slug, result)
+  return result
+}
+
+/**
+ * 枚举所有拆分组合，返回第一个存在的路径
+ * 限制最多 512 种组合防止爆炸
+ */
+function tryResolveSlug(parts: string[]): string | null {
+  const maxResults = 512
+  let count = 0
+
+  // BFS：先生成最深层路径（全拆分），再逐步合并相邻段
+  function bt(idx: number, current: string[]): string | null {
+    if (count >= maxResults) return null
+
+    if (idx === parts.length) {
+      count++
+      const candidate = `/Users/${current.join('/')}`
+      if (existsSync(candidate)) return candidate
+      return null
+    }
+
+    for (let j = idx; j < parts.length; j++) {
+      const segment = parts.slice(idx, j + 1).join('-')
+      const found = bt(j + 1, [...current, segment])
+      if (found) return found
+    }
+
+    return null
+  }
+
+  return bt(0, [])
+}
+
+// ======================== 日志工具 ========================
+
+function ts(): string {
+  return new Date().toISOString().replace('T', ' ').slice(0, 19)
+}
+
+function log(msg: string): void {
+  console.log(`[${ts()}] ${msg}`)
+}
+
+/**
+ * process-all：遍历 knowledge 下所有项目目录，逐个执行 summarize + consolidate
+ *
+ * 串行执行避免并发启动过多 claude 进程。
+ * 单个项目失败不阻止后续项目处理。
+ */
+async function handleProcessAll(): Promise<void> {
+  const knowledgeBaseDir = join(homedir(), '.claude', 'knowledge')
+
+  if (!existsSync(knowledgeBaseDir)) return
+
+  const entries = readdirSync(knowledgeBaseDir, { withFileTypes: true })
+  const projectDirs = entries
+    .filter((e) => e.isDirectory() && e.name !== 'config.json')
+    .map((e) => e.name)
+
+  log(`process-all 开始，共 ${projectDirs.length} 个项目`)
+
+  let ok = 0, skipped = 0, failed = 0
+
+  for (const slug of projectDirs) {
+    const projectPath = slugToProjectPath(slug)
+    if (!projectPath) {
+      log(`  SKIP ${slug} — 无法解析项目路径`)
+      skipped++
+      continue
+    }
+
+    let sumOk = false, conOk = false
+
+    try {
+      await summarize(projectPath)
+      sumOk = true
+    } catch (e: any) {
+      log(`  FAIL summarize ${slug}: ${e.message}`)
+    }
+
+    try {
+      await consolidate(projectPath)
+      conOk = true
+    } catch (e: any) {
+      log(`  FAIL consolidate ${slug}: ${e.message}`)
+    }
+
+    if (sumOk && conOk) {
+      ok++
+      log(`  OK ${slug}`)
+    } else {
+      failed++
+    }
+  }
+
+  log(`process-all 完成: ${ok} 成功, ${failed} 失败, ${skipped} 跳过`)
+}
+
+// ======================== cleanup-all 子命令 ========================
+
+/**
+ * cleanup-all：遍历所有项目目录执行 changelog 清理
+ */
+function handleCleanupAll(): Promise<void> {
+  const knowledgeBaseDir = join(homedir(), '.claude', 'knowledge')
+
+  if (!existsSync(knowledgeBaseDir)) return Promise.resolve()
+
+  const entries = readdirSync(knowledgeBaseDir, { withFileTypes: true })
+  const projectDirs = entries
+    .filter((e) => e.isDirectory() && e.name !== 'config.json')
+    .map((e) => e.name)
+
+  log(`cleanup-all 开始，共 ${projectDirs.length} 个项目`)
+
+  let cleaned = 0
+
+  for (const slug of projectDirs) {
+    const projectPath = slugToProjectPath(slug)
+    if (!projectPath) continue
+    handleCleanup(projectPath)
+    cleaned++
+  }
+
+  log(`cleanup-all 完成: ${cleaned} 个项目已清理`)
+
+  return Promise.resolve()
+}
+
 // ======================== 主入口 ========================
 
 async function main(): Promise<void> {
@@ -282,6 +429,16 @@ async function main(): Promise<void> {
     case 'cleanup': {
       const projectRoot = getProjectRoot()
       handleCleanup(projectRoot)
+      break
+    }
+
+    case 'process-all': {
+      await handleProcessAll()
+      break
+    }
+
+    case 'cleanup-all': {
+      await handleCleanupAll()
       break
     }
 

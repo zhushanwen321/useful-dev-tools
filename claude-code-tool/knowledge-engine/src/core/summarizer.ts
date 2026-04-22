@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import type { SummarizeResult, TempKnowledgeMeta, StateFile } from './types.js'
 import { projectPathToSlug, findProjectRoot } from './slug.js'
 import { ensureKnowledgeDir } from './config.js'
-import { callQwen, isQwenAvailable } from './ai.js'
+import { callClaude, isClaudeAvailable } from './ai.js'
 
 // 单次执行最多处理的 commit 数量，防止 Stop hook 超时
 const MAX_COMMITS_PER_RUN = 5
@@ -41,7 +41,7 @@ export async function summarize(projectRoot: string): Promise<void> {
   // 限制单次处理数量，剩余 commit 留给下次执行
   const commitsToProcess = commits.slice(0, MAX_COMMITS_PER_RUN)
 
-  const qwenAvailable = isQwenAvailable()
+  const qwenAvailable = isClaudeAvailable()
 
   for (const { hash, message, timestamp } of commitsToProcess) {
     const diff = getCommitDiff(gitRoot, hash, lastCommit)
@@ -227,7 +227,7 @@ async function processWithAI(
   const prompt = buildSummarizePrompt(info)
 
   try {
-    const rawOutput = await callQwen(prompt)
+    const rawOutput = await callClaude(prompt)
     const result = parseAIResponse(rawOutput)
 
     if (result && result.should_summarize) {

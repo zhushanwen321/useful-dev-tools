@@ -855,7 +855,7 @@ configure_knowledge_engine() {
     # 配置 crontab
     local CRON_SCRIPT="$KNOWLEDGE_ENGINE_DIR/scripts/cron-maintenance.sh"
     local CRON_MARKER="# knowledge-engine-cron"
-    local CRON_ENTRY="0 23 * * * $CRON_SCRIPT $CRON_MARKER"
+    local CRON_ENTRY="0 23 * * * $CRON_SCRIPT >> ~/.claude/knowledge/maintenance.log 2>&1 $CRON_MARKER"
 
     # 移除旧条目（如果有），再添加新条目，避免重复
     crontab -l 2>/dev/null | grep -v "$CRON_MARKER" | { cat; echo "$CRON_ENTRY"; } | crontab -

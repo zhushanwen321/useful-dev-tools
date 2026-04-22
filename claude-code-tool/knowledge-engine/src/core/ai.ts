@@ -1,16 +1,26 @@
 import { spawnSync } from 'node:child_process'
 
-// qwen CLI 默认超时，summarize 等短 prompt 使用
-const QWEN_TIMEOUT_DEFAULT = 30000
+// summarize 等短 prompt 默认超时
+const CLAUDE_TIMEOUT_DEFAULT = 60000
 // consolidate 等长 prompt 需要更长超时
-const QWEN_TIMEOUT_CONSOLIDATE = 120000
+const CLAUDE_TIMEOUT_CONSOLIDATE = 180000
+
+// clode 的环境变量配置（对应 ~/.zsh/claude.zsh 中的 clode alias）
+const CLAUDE_ENV = {
+  ANTHROPIC_AUTH_TOKEN: 'sk-router-4c5823f4808c6614dd7f111ad9c96562cecb182560c3852f589fbd4461e58558',
+  ANTHROPIC_BASE_URL: 'http://192.168.1.111:9981',
+  ANTHROPIC_MODEL: 'glm-5',
+  ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.1',
+  ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5',
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-5-turbo',
+  ANTHROPIC_SMALL_FAST_MODEL: 'glm-5-turbo',
+}
 
 /**
- * 检测 qwen CLI 是否可用
- * 通过尝试获取版本号来判断，比 `which` 更可靠（能检测到权限问题等）
+ * 检测 claude CLI 是否可用
  */
-export function isQwenAvailable(): boolean {
-  const result = spawnSync('qwen', ['--version'], {
+export function isClaudeAvailable(): boolean {
+  const result = spawnSync('claude', ['--version'], {
     timeout: 5000,
     encoding: 'utf-8',
     stdio: 'pipe',
@@ -19,34 +29,40 @@ export function isQwenAvailable(): boolean {
   return result.status === 0
 }
 
+/** @deprecated 使用 isClaudeAvailable */
+export const isQwenAvailable = isClaudeAvailable
+
 /**
- * 调用 qwen CLI，将 prompt 通过 stdin 传入，返回 stdout 输出
+ * 调用 claude CLI 无头模式，将 prompt 作为参数传入，返回 stdout 输出
  *
- * --approval-mode plan: 只允许规划，禁止执行任何工具调用（文件写入、命令执行等）
- * --output-format text: 只要纯文本输出，不要 json 包裹
- * --exclude-tools Write Edit Bash: 额外排除写入和执行类工具作为双保险
+ * -p: 无头模式，输出结果后退出
+ * --output-format text: 只要纯文本输出
+ * --dangerously-skip-permissions: 跳过交互式权限确认（cron 环境需要）
  */
-export async function callQwen(prompt: string, options?: { timeout?: number }): Promise<string> {
-  const timeout = options?.timeout ?? QWEN_TIMEOUT_DEFAULT
-  const result = spawnSync('qwen', [
-    '--approval-mode', 'plan',
-    '--exclude-tools', 'Write', 'Edit', 'Bash', 'NotebookEdit',
+export async function callClaude(prompt: string, options?: { timeout?: number }): Promise<string> {
+  const timeout = options?.timeout ?? CLAUDE_TIMEOUT_DEFAULT
+  const result = spawnSync('claude', [
+    '-p', prompt,
     '--output-format', 'text',
+    '--dangerously-skip-permissions',
   ], {
-    input: prompt,
     timeout,
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, ...CLAUDE_ENV },
   })
 
   if (result.error) {
-    throw new Error(`qwen 进程错误: ${result.error.message}`)
+    throw new Error(`claude 进程错误: ${result.error.message}`)
   }
 
   if (result.status !== 0) {
     const stderr = result.stderr?.trim() || '无错误输出'
-    throw new Error(`qwen 执行失败 (exit ${result.status}): ${stderr}`)
+    throw new Error(`claude 执行失败 (exit ${result.status}): ${stderr}`)
   }
 
   return result.stdout.trim()
 }
+
+/** @deprecated 使用 callClaude */
+export const callQwen = callClaude

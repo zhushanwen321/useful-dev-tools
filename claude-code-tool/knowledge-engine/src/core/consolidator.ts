@@ -19,7 +19,7 @@ import type {
 } from './types.js'
 import { projectPathToSlug, findProjectRoot } from './slug.js'
 import { loadConfig, ensureKnowledgeDir } from './config.js'
-import { callQwen, isQwenAvailable } from './ai.js'
+import { callClaude, isClaudeAvailable } from './ai.js'
 
 // 并发锁标记文件超过此时间视为过期（10 分钟），防止异常退出后死锁
 const LOCK_EXPIRE_MS = 10 * 60 * 1000
@@ -70,7 +70,7 @@ export async function consolidate(projectRoot: string): Promise<void> {
     const formalStructure = scanFormalStructure(formalDir)
     const existingFilesSummary = scanExistingFilesSummary(formalDir)
 
-    if (isQwenAvailable()) {
+    if (isClaudeAvailable()) {
       // AI 路径：分批处理，防止 prompt 过大导致超时
       const batchFiles = currentTempFiles.slice(0, MAX_FILES_PER_CONSOLIDATE)
       const tempContents = readAllTempFiles(tempDir, batchFiles)
@@ -80,7 +80,7 @@ export async function consolidate(projectRoot: string): Promise<void> {
         tempContents,
         config.categories,
       )
-      const rawOutput = await callQwen(prompt, { timeout: 120000 })
+      const rawOutput = await callClaude(prompt, { timeout: 180000 })
       const result = parseConsolidateResult(rawOutput)
 
       if (result) {
