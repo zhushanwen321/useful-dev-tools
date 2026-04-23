@@ -13,7 +13,7 @@
  *   bun run src/cli.ts cleanup      # 清理已沉淀的 changelog 条目
  */
 
-import { readFileSync, existsSync, writeFileSync, readdirSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync, readdirSync, unlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { spawnSync } from 'node:child_process'
@@ -24,6 +24,9 @@ import { projectPathToSlug, findProjectRoot } from './core/slug.js'
 import { getKnowledgeDir } from './core/config.js'
 import { parseHookInput } from './adapters/claude-code.js'
 import type { StateFile } from './core/types.js'
+
+// 索引文件排除列表
+const INDEX_FILES = new Set(['index.md', 'tag_index.md'])
 
 /**
  * 从环境变量或 cwd 获取项目根路径
@@ -397,6 +400,187 @@ function handleCleanupAll(): Promise<void> {
   return Promise.resolve()
 }
 
+// ======================== prune 子命令 ========================
+
+// SHA hash 文件名模式：40 位十六进制字符
+const GIT_SHA_PATTERN = /^[0-9a-f]{40}\.md$/
+
+// 条目内容低于此字符数的视为空洞条目
+const MIN_BODY_LENGTH = 100
+
+/**
+ * prune：启发式清理单个项目的低质量知识条目
+ *
+ * 三层清理：
+ * 1. 陈旧项目：项目目录已不存在于磁盘
+ * 2. SHA 命名条目：降级路径产物，几乎都是 git diff 的复制品
+ * 3. 空洞条目：body 内容过短，没有实质知识
+ */
+function handlePrune(projectRoot: string): { shaFiles: number; hollowFiles: number; indexesRegenerated: boolean } {
+  const gitRoot = findProjectRoot(projectRoot)
+  if (!gitRoot) return { shaFiles: 0, hollowFiles: 0, indexesRegenerated: false }
+
+  const slug = projectPathToSlug(gitRoot)
+  const knowledgeDir = getKnowledgeDir(slug)
+  const formalDir = join(knowledgeDir, 'formal')
+
+  if (!existsSync(formalDir)) return { shaFiles: 0, hollowFiles: 0, indexesRegenerated: false }
+
+  let shaFiles = 0
+  let hollowFiles = 0
+
+  for (const cat of readdirSync(formalDir, { withFileTypes: true })) {
+    if (!cat.isDirectory()) continue
+    const catDir = join(formalDir, cat.name)
+
+    for (const file of readdirSync(catDir)) {
+      if (!file.endsWith('.md') || INDEX_FILES.has(file)) continue
+      const filePath = join(catDir, file)
+
+      // 层 1：SHA 命名文件 — 直接删除
+      if (GIT_SHA_PATTERN.test(file)) {
+        try { unlinkSync(filePath) } catch { /* ignore */ }
+        shaFiles++
+        continue
+      }
+
+      // 层 2：空洞条目 — body 内容过短
+      const content = readFileSync(filePath, 'utf-8')
+      const bodyMatch = content.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/)
+      const body = bodyMatch ? bodyMatch[1].trim() : ''
+
+      if (body.length < MIN_BODY_LENGTH) {
+        try { unlinkSync(filePath) } catch { /* ignore */ }
+        hollowFiles++
+      }
+    }
+  }
+
+  // 如果有删除，重新生成索引
+  if (shaFiles > 0 || hollowFiles > 0) {
+    regenerateIndexes(knowledgeDir, formalDir)
+  }
+
+  return { shaFiles, hollowFiles, indexesRegenerated: shaFiles > 0 || hollowFiles > 0 }
+}
+
+/**
+ * prune-all：遍历所有项目执行 prune，并清理陈旧项目目录
+ */
+function handlePruneAll(): void {
+  const knowledgeBaseDir = join(homedir(), '.claude', 'knowledge')
+  if (!existsSync(knowledgeBaseDir)) return
+
+  const entries = readdirSync(knowledgeBaseDir, { withFileTypes: true })
+  const projectDirs = entries
+    .filter((e) => e.isDirectory() && e.name !== 'config.json')
+    .map((e) => e.name)
+
+  log(`prune-all 开始，共 ${projectDirs.length} 个项目`)
+
+  let totalSha = 0, totalHollow = 0, staleRemoved = 0, pruned = 0
+
+  for (const slug of projectDirs) {
+    // 陈旧项目：磁盘上已不存在的项目，整个目录清理
+    const projectPath = slugToProjectPath(slug)
+    if (!projectPath) {
+      const dir = join(knowledgeBaseDir, slug)
+      try {
+        rmSync(dir, { recursive: true, force: true })
+        staleRemoved++
+        log(`  STALE ${slug} — 项目已不存在，已删除知识目录`)
+      } catch (e: any) {
+        log(`  STALE ${slug} — 删除失败: ${e.message}`)
+      }
+      continue
+    }
+
+    const result = handlePrune(projectPath)
+    if (result.shaFiles > 0 || result.hollowFiles > 0) {
+      totalSha += result.shaFiles
+      totalHollow += result.hollowFiles
+      pruned++
+      log(`  PRUNE ${slug} — 删除 ${result.shaFiles} 个 SHA 条目, ${result.hollowFiles} 个空洞条目`)
+    }
+  }
+
+  log(`prune-all 完成: ${pruned} 个项目已清理, ${totalSha} 个 SHA 条目, ${totalHollow} 个空洞条目, ${staleRemoved} 个陈旧项目`)
+}
+
+/**
+ * 重新生成知识库索引（prune 后调用）
+ * 复用 consolidator 的索引生成逻辑比较困难，这里做简化版本
+ */
+function regenerateIndexes(_knowledgeDir: string, formalDir: string): void {
+  const allEntries: Array<{ category: string; filename: string; meta: { name: string; description: string; tags: string[] } }> = []
+
+  for (const cat of readdirSync(formalDir, { withFileTypes: true })) {
+    if (!cat.isDirectory()) continue
+    const catDir = join(formalDir, cat.name)
+
+    for (const file of readdirSync(catDir)) {
+      if (!file.endsWith('.md') || INDEX_FILES.has(file)) continue
+      const filePath = join(catDir, file)
+      const meta = parseSimpleFrontmatter(filePath)
+      if (meta) {
+        allEntries.push({ category: cat.name, filename: file, meta })
+      }
+    }
+  }
+
+  const now = new Date().toISOString().split('T')[0]
+
+  // 主索引
+  const grouped = new Map<string, typeof allEntries>()
+  for (const e of allEntries) {
+    const list = grouped.get(e.category) || []
+    list.push(e)
+    grouped.set(e.category, list)
+  }
+
+  const indexLines = ['# 项目知识库索引', '']
+  for (const [cat, entries] of grouped) {
+    indexLines.push(`## ${cat}`)
+    for (const e of entries) {
+      indexLines.push(`- [${e.meta.name}](${e.category}/${e.filename}) — ${e.meta.description}`)
+    }
+    indexLines.push('')
+  }
+  indexLines.push(`---`)
+  indexLines.push(`最近更新：${now} | 文档数：${allEntries.length}`)
+
+  writeFileSync(join(formalDir, 'index.md'), indexLines.join('\n') + '\n', 'utf-8')
+}
+
+function parseSimpleFrontmatter(filePath: string): { name: string; description: string; tags: string[] } | null {
+  try {
+    const content = readFileSync(filePath, 'utf-8')
+    const match = content.match(/^---\n([\s\S]*?)\n---\n/)
+    if (!match) return null
+
+    const yaml = match[1]
+    const meta: Record<string, string | string[]> = {}
+
+    for (const line of yaml.split('\n')) {
+      const arrMatch = line.match(/^(\w+):\s*\[(.+)\]$/)
+      if (arrMatch) {
+        meta[arrMatch[1]] = arrMatch[2].split(',').map((v) => v.trim().replace(/^"|"$/g, '')).filter(Boolean)
+        continue
+      }
+      const kvMatch = line.match(/^(\w+):\s*"?(.+?)"?\s*$/)
+      if (kvMatch) meta[kvMatch[1]] = kvMatch[2]
+    }
+
+    return {
+      name: String(meta.name || ''),
+      description: String(meta.description || ''),
+      tags: Array.isArray(meta.tags) ? meta.tags : [],
+    }
+  } catch {
+    return null
+  }
+}
+
 // ======================== 主入口 ========================
 
 async function main(): Promise<void> {
@@ -439,6 +623,20 @@ async function main(): Promise<void> {
 
     case 'cleanup-all': {
       await handleCleanupAll()
+      break
+    }
+
+    case 'prune': {
+      const projectRoot = getProjectRoot()
+      const result = handlePrune(projectRoot)
+      if (result.shaFiles > 0 || result.hollowFiles > 0) {
+        log(`prune: 删除 ${result.shaFiles} 个 SHA 条目, ${result.hollowFiles} 个空洞条目`)
+      }
+      break
+    }
+
+    case 'prune-all': {
+      handlePruneAll()
       break
     }
 

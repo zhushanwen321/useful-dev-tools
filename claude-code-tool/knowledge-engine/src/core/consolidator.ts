@@ -66,6 +66,13 @@ export async function consolidate(projectRoot: string): Promise<void> {
     const currentTempFiles = getTempFiles(tempDir)
     if (currentTempFiles.length === 0) return
 
+    // 质量门：raw 文件占比过高时跳过合并，避免产生低质量知识
+    if (hasLowQualityTempFiles(tempDir, currentTempFiles)) {
+      // 只清理已被标记为过期的 raw 文件，保留 summarized 文件等下次合并
+      cleanupStaleRawFiles(tempDir, currentTempFiles)
+      return
+    }
+
     // 读取现有正式知识库结构
     const formalStructure = scanFormalStructure(formalDir)
     const existingFilesSummary = scanExistingFilesSummary(formalDir)
@@ -90,10 +97,19 @@ export async function consolidate(projectRoot: string): Promise<void> {
       generateAllIndexes(formalDir, config.categories)
       cleanupTempFiles(tempDir, batchFiles)
     } else {
-      // 降级路径：按 topics 字段做简单目录归类，不执行合并
-      fallbackClassify(tempDir, formalDir, currentTempFiles, config.categories)
-      generateAllIndexes(formalDir, config.categories)
-      cleanupTempFiles(tempDir, currentTempFiles)
+      // AI 不可用时：只保留 summarized 的 temp 文件（下次再合并），清理 raw 文件
+      const summarizedFiles: string[] = []
+      for (const file of currentTempFiles) {
+        const parsed = parseTempFile(join(tempDir, file))
+        if (parsed && parsed.meta.status === 'summarized') {
+          summarizedFiles.push(file)
+        } else {
+          // raw 文件直接清理，不再 1:1 复制到 formal
+          try { unlinkSync(join(tempDir, file)) } catch { /* ignore */ }
+        }
+      }
+      // summarized 文件保留在 temp 中，等下次 AI 可用时再合并
+      void summarizedFiles
     }
   } finally {
     // 无论成功失败都必须释放锁
@@ -144,6 +160,37 @@ function releaseLock(lockPath: string): void {
 }
 
 // ======================== 文件扫描 ========================
+
+// 质量门：检查 temp 文件中 raw 占比是否过高
+// 全是 raw 说明 AI 一直不可用，合并只会产生低质量知识
+function hasLowQualityTempFiles(tempDir: string, files: string[]): boolean {
+  let rawCount = 0
+  for (const file of files) {
+    const parsed = parseTempFile(join(tempDir, file))
+    if (parsed && parsed.meta.status === 'raw') rawCount++
+  }
+  // raw 占比超过 50% 就跳过合并
+  return rawCount > files.length / 2
+}
+
+// 清理超过 7 天的 raw temp 文件，防止无限积累
+function cleanupStaleRawFiles(tempDir: string, files: string[]): void {
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+  const now = Date.now()
+
+  for (const file of files) {
+    const filePath = join(tempDir, file)
+    const parsed = parseTempFile(filePath)
+    if (!parsed || parsed.meta.status !== 'raw') continue
+
+    const fileTime = new Date(parsed.meta.timestamp).getTime()
+    if (isNaN(fileTime)) continue
+
+    if (now - fileTime > SEVEN_DAYS_MS) {
+      try { unlinkSync(filePath) } catch { /* ignore */ }
+    }
+  }
+}
 
 /**
  * 获取 temp 目录下所有 .md 文件（排除标记文件）
@@ -430,45 +477,6 @@ function executeOperations(
         ...(originalCategory ? { original_category: originalCategory } : {}),
       }, op.content)
     }
-  }
-}
-
-// ======================== 降级路径 ========================
-
-/**
- * 无 AI 时按 topics 字段做简单目录归类
- * 规则匹配：topics 中包含已知 category 名则归入，否则归入第一个 category
- */
-function fallbackClassify(
-  tempDir: string,
-  formalDir: string,
-  tempFiles: string[],
-  categories: string[],
-): void {
-  for (const filename of tempFiles) {
-    const filePath = join(tempDir, filename)
-    const parsed = parseTempFile(filePath)
-    if (!parsed) continue
-    const { meta, body } = parsed
-
-    // 尝试从 topics 中匹配已知分类
-    const matchedCategory =
-      categories.find((cat) => meta.topics.some((topic: string) => topic.toLowerCase().includes(cat.toLowerCase()))) ||
-      categories[0]
-
-    const catDir = join(formalDir, matchedCategory)
-    ensureDir(catDir)
-
-    const now = new Date().toISOString()
-    writeFormalKnowledge(join(catDir, filename), {
-      name: meta.name,
-      description: meta.description,
-      tags: meta.tags,
-      category: matchedCategory,
-      created: now,
-      updated: now,
-      sources: [filename],
-    }, body)
   }
 }
 

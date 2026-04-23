@@ -15,6 +15,18 @@ const DIFF_SIZE_LIMIT = 10000
 // 传给 AI 的 diff 最大字符数
 const DIFF_SUMMARY_MAX_LENGTH = 2000
 
+// 预过滤：改动行数低于此阈值的 commit 直接跳过，不交给 AI 判断
+const MIN_DIFF_LINES = 4
+
+// 预过滤：匹配这些关键字的 commit message 直接跳过
+const TRIVIAL_COMMIT_PATTERNS = [
+  /^(chore|ci|build)\s*:/i,
+  /\bbump\b.*\bversion\b/i,
+  /\brelease\s*v?\d/i,
+  /\bmerge\s+(branch|pull|tag)/i,
+  /^initial\s+commit$/i,
+]
+
 // git 空树的 hash，用于初始 commit 的 diff
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf899d15363d7aa91'
 
@@ -41,18 +53,21 @@ export async function summarize(projectRoot: string): Promise<void> {
   // 限制单次处理数量，剩余 commit 留给下次执行
   const commitsToProcess = commits.slice(0, MAX_COMMITS_PER_RUN)
 
-  const qwenAvailable = isClaudeAvailable()
+  if (!isClaudeAvailable()) return
 
   for (const { hash, message, timestamp } of commitsToProcess) {
+    const diffStat = getDiffStat(gitRoot, hash, lastCommit)
+
+    // 预过滤：trivial commit 直接跳过，不消耗 AI 资源
+    if (isTrivialCommit(message, diffStat)) {
+      updateState(knowledgeDir, { lastSummarizedCommit: hash, lastSummarizedTimestamp: timestamp })
+      continue
+    }
+
     const diff = getCommitDiff(gitRoot, hash, lastCommit)
     const changelogEntries = getChangelogEntries(knowledgeDir, state.lastSummarizedTimestamp, timestamp)
-    const filesList = getDiffStat(gitRoot, hash, lastCommit)
 
-    if (qwenAvailable) {
-      await processWithAI(gitRoot, knowledgeDir, { hash, message, timestamp, diff, changelogEntries, filesList })
-    } else {
-      processAsRaw(gitRoot, knowledgeDir, { hash, message, timestamp, diff: filesList })
-    }
+    await processWithAI(gitRoot, knowledgeDir, { hash, message, timestamp, diff, changelogEntries, filesList: diffStat })
 
     // 每处理一个 commit 就更新 state，防止中途失败导致重复处理
     updateState(knowledgeDir, { lastSummarizedCommit: hash, lastSummarizedTimestamp: timestamp })
@@ -180,6 +195,31 @@ function getDiffStat(gitRoot: string, hash: string, lastSummarizedCommit: string
 
 // ======================== Changelog 读取 ========================
 
+// 预过滤：用确定性规则跳过明显无价值的 commit，不消耗 AI 资源
+function isTrivialCommit(message: string, diffStat: string): boolean {
+  // commit message 匹配 trivial 模式
+  for (const pattern of TRIVIAL_COMMIT_PATTERNS) {
+    if (pattern.test(message)) return true
+  }
+
+  // 从 diffStat 解析改动行数（格式：... files changed, N insertions(+), M deletions(-)）
+  const statMatch = diffStat.match(/(\d+) insertion[s]?\(?\+?\)?,\s*(\d+) deletion[s]?\(?\-?\)?/)
+  if (statMatch) {
+    const insertions = parseInt(statMatch[1], 10)
+    const deletions = parseInt(statMatch[2], 10)
+    if (insertions + deletions < MIN_DIFF_LINES) return true
+  }
+
+  // 变更文件数只有 1 个且是 lockfile/package.json 的版本号修改
+  const fileLines = diffStat.split('\n').filter((l) => l.includes('|'))
+  if (fileLines.length === 1) {
+    const singleFile = fileLines[0].split('|')[0].trim()
+    if (/(package-lock|bun\.lock|yarn\.lock|pnpm-lock|\.lock)$/.test(singleFile)) return true
+  }
+
+  return false
+}
+
 // 从 changelog.log 中读取时间范围内的条目
 function getChangelogEntries(knowledgeDir: string, sinceTimestamp: string, untilTimestamp: string): string {
   const changelogPath = join(knowledgeDir, 'changelog.log')
@@ -243,14 +283,13 @@ async function processWithAI(
     }
     // should_summarize=false 时静默跳过，不需要记录无价值的变更
   } catch {
-    // AI 不可用或返回无效时走降级路径
-    processAsRaw(_gitRoot, knowledgeDir, info)
+    // AI 调用失败时静默跳过，宁可漏记不可错记
   }
 }
 
 // 构建给 AI 的 prompt
 function buildSummarizePrompt(info: CommitInfo): string {
-  return `你是一个代码变更知识提取器。分析以下代码变更，提取有价值的业务或技术知识。
+  return `你是一个代码变更知识提取器。分析以下代码变更，判断是否值得沉淀为长期知识。
 
 ## 操作序列
 ${info.changelogEntries || '无操作记录'}
@@ -268,12 +307,23 @@ ${info.diff}
 {
   "should_summarize": true/false,
   "topics": ["topic1"],
-  "summary": "2-3 句话总结",
+  "summary": "2-3 句话总结，重点说明「为什么」这样改，而不只是「改了什么」",
   "key_decisions": ["决策及原因"],
   "patterns": ["发现的模式"]
 }
 
-should_summarize 判断：涉及架构决策、新功能、重要 bug 修复为 true；格式化、依赖更新、typo 为 false。`
+should_summarize 判断标准（严格）：
+- true：涉及架构决策、新功能设计、非显而易见的 bug 修复、性能优化、重要的重构
+- false：以下类型全部为 false，不要犹豫：
+  - 版本号修改、changelog 更新
+  - 代码格式化、import 排序、lint 自动修复
+  - 配置文件微调（端口、标题、颜色等）
+  - 单个文件的 typo 修复
+  - 测试用例的简单补充（不涉及新模式）
+  - 文档/注释的纯文字修改
+  - 依赖版本升级（无 breaking change 的）
+
+当不确定时，选择 false。知识库的信噪比比覆盖率更重要。`
 }
 
 // 解析 AI 返回的 JSON，处理各种异常格式
@@ -319,27 +369,6 @@ function buildKnowledgeBody(result: SummarizeResult): string {
   return sections.join('\n\n')
 }
 
-// ======================== 降级处理 ========================
-
-// 无 AI 时用原始 commit 信息生成临时知识文件
-function processAsRaw(
-  _gitRoot: string,
-  knowledgeDir: string,
-  info: { hash: string; message: string; timestamp: string; diff: string },
-): void {
-  const tags = extractTagsFromPaths(info.diff)
-
-  writeTempKnowledge(knowledgeDir, info.hash, {
-    name: info.message,
-    description: info.message,
-    tags,
-    commit: info.hash,
-    timestamp: info.timestamp,
-    topics: [],
-    status: 'raw',
-  }, `## Commit\n\n${info.message}\n\n## 变更统计\n\n${info.diff}`)
-}
-
 // ======================== 文件写入 ========================
 
 // 从文件路径列表中提取标签（取关键目录名）
@@ -351,22 +380,6 @@ function extractTags(filesList: string, topics: string[]): string[] {
   for (const path of pathMatches) {
     const parts = path.split('/')
     // 取 src 下的第一级子目录作为 tag（如 src/core -> core）
-    const srcIndex = parts.indexOf('src')
-    if (srcIndex !== -1 && srcIndex + 1 < parts.length) {
-      tags.add(parts[srcIndex + 1])
-    }
-  }
-
-  return [...tags].slice(0, 5)
-}
-
-// 从 diff stat 中提取目录标签（降级路径使用）
-function extractTagsFromPaths(stat: string): string[] {
-  const tags = new Set<string>()
-  const pathMatches = stat.match(/[\w/.-]+\.\w+/g) || []
-
-  for (const path of pathMatches) {
-    const parts = path.split('/')
     const srcIndex = parts.indexOf('src')
     if (srcIndex !== -1 && srcIndex + 1 < parts.length) {
       tags.add(parts[srcIndex + 1])
