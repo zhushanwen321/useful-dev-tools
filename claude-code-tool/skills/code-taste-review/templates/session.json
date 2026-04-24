@@ -1,0 +1,8 @@
+{
+  "date": "yyyy-MM-dd",
+  "project_path": "<当前项目绝对路径>",
+  "project_name": "<项目目录名>",
+  "status": "in_progress",
+  "languages": ["<lang>"],
+  "files_reviewed": []
+}
