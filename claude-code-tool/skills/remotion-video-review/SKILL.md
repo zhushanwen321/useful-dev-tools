@@ -1,6 +1,6 @@
 ---
 name: remotion-video-review
-description: Use after implementing Remotion scenes when user sees visual issues during preview - guides structured feedback to fix layout, alignment, and timing problems without trial-and-error iteration.
+description: Use after implementing Remotion scenes when user sees visual, timing, size, or pronunciation issues during preview. Converts vague feedback into structured layout/timing/size/pronunciation fixes. Handles layout alignment, animation timing, element sizing, content corrections, and pronunciation fixes with targeted segment regeneration.
 ---
 
 # Remotion Video Review
@@ -23,6 +23,8 @@ After implementing Remotion scenes, users preview in Remotion Studio and see vis
 - Technical Remotion errors (use remotion-best-practices)
 - Content/copy changes (just edit directly)
 
+**Pipeline position:** Final step. Used after remotion-video-development implementation.
+
 ## Process Flow
 
 ```dot
@@ -34,6 +36,8 @@ digraph review {
     "Layout issue" [shape=box];
     "Timing issue" [shape=box];
     "Content issue" [shape=box];
+    "Size issue" [shape=box];
+    "Pronunciation issue" [shape=box];
     "Structured feedback form" [shape=box];
     "Translate to code" [shape=box];
     "tsc + render verify" [shape=box];
@@ -42,12 +46,16 @@ digraph review {
 
     "Identify affected scenes" -> "Render key frames";
     "Render key frames" -> "Classify issues";
-    "Classify issues" -> "Layout issue" [label="position/size"];
+    "Classify issues" -> "Layout issue" [label="position/overlap"];
     "Classify issues" -> "Timing issue" [label="sync/pace"];
     "Classify issues" -> "Content issue" [label="text/image"];
+    "Classify issues" -> "Size issue" [label="too small/big"];
+    "Classify issues" -> "Pronunciation issue" [label="读错/发音"];
     "Layout issue" -> "Structured feedback form";
     "Timing issue" -> "Structured feedback form";
     "Content issue" -> "Structured feedback form";
+    "Size issue" -> "Structured feedback form";
+    "Pronunciation issue" -> "Structured feedback form";
     "Structured feedback form" -> "Translate to code";
     "Translate to code" -> "tsc + render verify";
     "tsc + render verify" -> "Resolved?";
@@ -75,6 +83,7 @@ Listen to the user's feedback and classify:
 | Timing | "too early", "too late", "appears before mention" | T constants don't match voiceover |
 | Content | "wrong text", "wrong image", "should say" | Copy/image mismatch |
 | Size | "too small", "too big", "can't see" | Fixed dimensions too large/small |
+| Pronunciation | "读错了", "发音不对", "听起来怪", "读成了字母" | TTS mispronouncing a word |
 
 ## Step 3: Structured Feedback Form
 
@@ -128,7 +137,7 @@ SIZE OPTIONS:
 
 **First, check subtitle timestamps** (most precise source):
 ```bash
-python align-timeline.py  # regenerate from Minimax subtitle data
+python ~/.claude/skills/remotion-tools/align-timeline.py  # regenerate from Minimax subtitle data
 ```
 
 Then show the discrepancy:
@@ -156,6 +165,50 @@ Change to:    "Coding Plan 体验优化工具 llm-simple-router"
 Confirm? (also need to update voiceover?)
 ```
 
+### For Pronunciation Issues
+
+**Not a code fix — update the pronunciation rules and regenerate audio.** (Full fix loop in remotion-video-development Pronunciation Fix Loop)
+
+1. Identify the mispronounced word and which segment:
+   ```
+   Scene 3, seg1 (~8s): "KIMI K2.6" is read as "K-I-M-I K-two-point-six"
+   Should sound like: "key mi K 二点六"
+   ```
+
+2. Check if rule exists in `~/.claude/voice-replace-text/minimax-tts.json`:
+   - If missing → add new rule
+   - If existing but wrong → update the replacement text
+
+3. Regenerate only the affected segment:
+   ```bash
+   python ~/.claude/skills/remotion-tools/generate-voiceover.py --scene scene3 --segment 1 --force
+   ```
+
+4. Re-run timeline alignment (audio length may change):
+   ```bash
+   python ~/.claude/skills/remotion-tools/align-timeline.py
+   ```
+
+5. Update `theme.ts` duration for affected scene if length changed
+
+### For Size Issues
+
+**Most size issues stem from incorrect fixed dimensions or missing constraints.**
+
+1. Present the current dimensions and the problem:
+   ```
+   Current: image container 400x300px
+   Issue: "too small, can't see details"
+   ```
+
+2. Ask: "What should it match?" Options:
+   - Match another element's width/height (which element?)
+   - Fill available space (`flex: 1`)
+   - Fixed size: ___px
+   - Scale proportionally (current aspect ratio, target width or height)
+
+3. Apply the size change to the corresponding constant (e.g., `IMG_W`, `IMG_H`, `CARD_WIDTH`) in the scene file.
+
 ## Step 4: Translate to Code
 
 Map structured feedback to specific code changes:
@@ -173,6 +226,7 @@ Map structured feedback to specific code changes:
 | "appear earlier" | Decrease T.constant value |
 | "appear later" | Increase T.constant value |
 | "timing off" | Regenerate `align-timeline.py`, use subtitle anchor frames |
+| "读错了/发音不对" | Add rule to `minimax-tts.json`, regenerate with `--scene --segment --force`, re-align timeline |
 
 ## Step 5: Verify
 

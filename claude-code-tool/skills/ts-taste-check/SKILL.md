@@ -65,6 +65,8 @@ bash ~/Code/coding_config/.codetaste/ts/init-lint.sh [项目目录]
 | 未约束的 `any` | taste.md "类型即契约" | ESLint no-explicit-any |
 | `Record<string, unknown>` 无校验直接使用 | essence.md "信任止于边界" | 人工 |
 | 错误响应格式不统一 | taste.md "统一优于灵活" | 人工 |
+| API 响应未使用统一信封 `{code,message,data}` | taste.md "API 响应格式规范" | 人工 |
+| 前端 catch 块硬编码错误消息而非从 `ApiError.message` 提取 | taste.md "API 响应格式规范" | 人工 |
 
 **P1 偏好（推荐修复）**
 
