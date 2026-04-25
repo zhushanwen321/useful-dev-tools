@@ -11,6 +11,22 @@ Use this skills whenever you are dealing with Remotion code to obtain the domain
 
 **Pipeline position:** Reference guide. Used alongside any step in the video creation pipeline (remotion-video-design → development → review).
 
+## Remotion Suitability
+
+Remotion excels at: data-driven videos, template-based batch production, code animations, info broadcasts, data visualization. It does NOT suit: screen recordings, live demos, vlogs, real-camera footage.
+
+**Hybrid workflow:** Remotion renders programmatic parts (title cards, animations, charts) → OBS records demo parts → FFmpeg concatenates.
+
+## Video Production Pipeline
+
+For complete video projects, follow this pipeline:
+
+1. **remotion-video-design** — Creative direction, script review, scene planning, voiceover, design spec
+2. **remotion-video-development** — Implement scenes from design spec
+3. **remotion-video-review** — Fix visual/timing/pronunciation issues
+
+Use this skill (best-practices) alongside any pipeline step for specific Remotion API questions.
+
 ## New project setup
 
 When in an empty folder or workspace with no existing Remotion project, scaffold one using:

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Remotion 视频风格画廊</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;background:#0a0a0a;color:#fff;padding:28px 32px}
+h1{text-align:center;font-size:22px;font-weight:600;margin-bottom:6px}
+.sub{text-align:center;color:#666;margin-bottom:20px;font-size:13px}
+/* tag bar */
+.tag-bar{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:20px;align-items:center}
+.tag-btn{padding:3px 10px;border-radius:12px;border:1px solid #333;background:transparent;color:#777;font-size:11px;cursor:pointer;transition:all .15s;font-family:inherit}
+.tag-btn:hover{border-color:#555;color:#aaa}
+.tag-btn.active{background:#1e3a5f;border-color:#3b82f6;color:#93c5fd}
+.tag-btn.reset{border-color:#444;color:#999;margin-right:6px}
+.count{color:#555;font-size:12px;margin-left:10px}
+/* selected info */
+.sel-info{text-align:center;padding:12px 16px;margin-bottom:16px;background:#111827;border-radius:8px;border:1px solid #1e3a5f;display:none}
+.sel-info.show{display:block}
+.sel-info .name{font-size:15px;font-weight:600;color:#60a5fa;margin-bottom:8px}
+.sel-info pre{text-align:left;background:#0d1117;padding:10px;border-radius:6px;font-size:12px;color:#c9d1d9;overflow-x:auto;margin-top:8px;position:relative}
+.copy-btn{position:absolute;top:6px;right:6px;padding:3px 10px;border-radius:4px;border:1px solid #333;background:#1c2128;color:#8b949e;font-size:11px;cursor:pointer;font-family:inherit}
+.copy-btn:hover{background:#262c36;color:#c9d1d9}
+/* grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:18px;max-width:1600px;margin:0 auto}
+.card{border-radius:10px;overflow:hidden;border:2px solid #222;cursor:pointer;transition:transform .15s,border-color .15s}
+.card:hover{transform:translateY(-2px);border-color:#444}
+.card.sel{border-color:#3b82f6;box-shadow:0 0 16px rgba(59,130,246,.18)}
+.card.hidden{display:none}
+/* mockup */
+.mf{width:100%;aspect-ratio:16/9;position:relative;overflow:hidden}
+.mc{width:100%;height:100%;display:flex;flex-direction:column;padding:18px 24px}
+.mt{font-size:15px;font-weight:700;margin-bottom:12px;letter-spacing:-.02em}
+.mb{display:flex;gap:12px;flex:1}
+.mk{flex:1;border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:5px}
+.mkt{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.ml{height:5px;border-radius:3px;opacity:.35}
+.ml.s{width:55%}.ml.m{width:75%}
+.mbg{display:inline-block;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;width:fit-content}
+.ms{flex:1;border-radius:5px;border-width:1px;border-style:solid;display:flex;flex-direction:column;overflow:hidden}
+.mtb{height:16px;display:flex;align-items:center;gap:3px;padding:0 6px}
+.md{width:6px;height:6px;border-radius:50%}
+.msb{flex:1;padding:8px;display:flex;flex-direction:column;gap:4px}
+/* label */
+.sl{padding:12px 14px;background:#111}
+.sn{font-size:13px;font-weight:600;margin-bottom:2px}
+.sen{color:#555;font-weight:400;font-size:12px}
+.sd{font-size:11px;color:#777;margin-bottom:3px}
+.ss{font-size:10px;color:#555;margin-bottom:6px}
+.st{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px}
+.stag{font-size:9px;padding:1px 5px;border-radius:3px;background:#1a1a1a;color:#666;border:1px solid #252525}
+.pa{display:flex;gap:3px}
+.cd{width:14px;height:14px;border-radius:2px;border:1px solid #333}
+</style>
+</head>
+<body>
+<h1>Remotion 视频风格画廊</h1>
+<p class="sub">点击卡片选择风格 | 多选标签筛选 | 选中的风格可直接映射到 theme.ts</p>
+<div class="tag-bar" id="tagBar"></div>
+<div class="sel-info" id="selInfo">
+  <div class="name" id="selName"></div>
+  <div id="themeWrap" style="position:relative;display:inline-block;width:100%">
+    <pre id="themeCode"></pre>
+    <button class="copy-btn" onclick="copyTheme()">复制</button>
+  </div>
+</div>
+<div class="grid" id="grid"></div>
+<script>
+const S=[
+{id:'cream',n:'奶油暖色',e:'Cream Warm',d:'温暖亲切，类似 Bear/Notion 的暖色调',s:'个人分享、教程、产品介绍',t:['亮色','温暖','亲切'],bg:'#fef3e7',p:'#e85913',tx:'#5c3d1e',c:'#fff',cb:'#f0d9c0',l:'#d4b896',bb:'#fff3e0',sc:'#fffaf5',sb:'#e8d5c0',tb:'#e8ddd0'},
+{id:'tokyo',n:'深蓝科技',e:'Tokyo Night',d:'VS Code 经典暗色主题，开发者最熟悉的配色',s:'开发工具评测、技术分享',t:['暗色','科技','专业'],bg:'#1a1b26',p:'#7aa2f7',tx:'#c0caf5',c:'#24283b',cb:'#414868',l:'#565f89',bb:'#1e2a40',sc:'#1f2335',sb:'#414868',tb:'#24283b'},
+{id:'ocean',n:'深海蓝',e:'Ocean Blue',d:'现代 SaaS 产品常用，比 Tokyo Night 更清爽',s:'SaaS 产品介绍、行业播报、数据分析',t:['暗色','科技','播报'],bg:'#0f172a',p:'#38bdf8',tx:'#e2e8f0',c:'#1e293b',cb:'#334155',l:'#475569',bb:'#172a3a',sc:'#1e293b',sb:'#334155',tb:'#1e293b'},
+{id:'cyber',n:'赛博霓虹',e:'Cyber Neon',d:'高对比度霓虹风格，视觉冲击力强',s:'工具推荐、激进观点、AI 前沿',t:['暗色','科技','激进','高对比'],bg:'#050505',p:'#00f0ff',tx:'#ffffff',c:'#111',cb:'#333',l:'#333',bb:'#0a1a1a',sc:'#0a0a0a',sb:'#222',tb:'#111'},
+{id:'minimal',n:'极简浅色',e:'Minimal Light',d:'信息密度高时最清晰，适合大量截图和代码',s:'截图展示、代码教程、技术文档',t:['亮色','极简','专业'],bg:'#fafafa',p:'#2563eb',tx:'#171717',c:'#fff',cb:'#e5e5e5',l:'#d4d4d4',bb:'#eff6ff',sc:'#fff',sb:'#e5e5e5',tb:'#f5f5f5'},
+{id:'forest',n:'森林暗色',e:'Forest Dark',d:'自然沉稳的暗绿风格，长时间观看舒适',s:'产品更新、长期项目、稳定工具分享',t:['暗色','温暖','播报'],bg:'#0c1915',p:'#4ade80',tx:'#e2e8f0',c:'#1a2e25',cb:'#2a4a3c',l:'#3d6b56',bb:'#122a1f',sc:'#142820',sb:'#2a4a3c',tb:'#1a2e25'},
+{id:'sunset',n:'日落暖阳',e:'Sunset Warmth',d:'暗底暖色调，活力与深度兼具',s:'创意分享、生活科技、轻松吐槽',t:['暗色','温暖','活泼'],bg:'#1a1423',p:'#ff6b35',tx:'#f0e6d3',c:'#2a1f35',cb:'#3d2d4f',l:'#4d3d5f',bb:'#2a1520',sc:'#1f1530',sb:'#3d2d4f',tb:'#2a1f35'},
+{id:'mono',n:'黑白灰',e:'Monochrome',d:'纯黑白灰，编辑/严肃内容的首选',s:'严肃分析、行业报告、深度评测',t:['亮色','极简','专业'],bg:'#f5f5f5',p:'#000',tx:'#1a1a1a',c:'#fff',cb:'#ddd',l:'#ccc',bb:'#e8e8e8',sc:'#fff',sb:'#ddd',tb:'#eee'},
+{id:'chalk',n:'黑板粉笔',e:'Chalkboard',d:'教室黑板风格，粉笔质感，教育场景首选',s:'技术教学、编程入门、课堂讲解',t:['暗色','教育','复古','温暖'],bg:'#2d4a3e',p:'#f5f5dc',tx:'#e8e8d0',c:'#1f352b',cb:'#3d6b56',l:'#2a4a3c',bb:'#1f352b',sc:'#1a2e25',sb:'#3d6b56',tb:'#254035'},
+{id:'terminal',n:'终端绿',e:'Terminal Green',d:'经典终端绿字黑底，极客/黑客风格',s:'极客工具、命令行教程、黑客风格',t:['暗色','科技','激进','高对比'],bg:'#0a0a0a',p:'#00ff41',tx:'#00cc33',c:'#0d0d0d',cb:'#1a1a1a',l:'#1a3a1a',bb:'#0a1a0a',sc:'#080808',sb:'#1a1a1a',tb:'#0d0d0d'},
+{id:'royal',n:'尊贵紫',e:'Royal Purple',d:'紫色渐变高端质感，适合付费产品',s:'高端产品发布、付费工具、商业报告',t:['暗色','产品','专业'],bg:'#1a0a2e',p:'#a855f7',tx:'#e2d6f0',c:'#2a1645',cb:'#3d2068',l:'#4d2d6f',bb:'#1f0f35',sc:'#1f0f35',sb:'#3d2068',tb:'#2a1645'},
+{id:'rose',n:'玫瑰粉',e:'Rose Pink',d:'粉色系浅底，轻松活泼',s:'轻松体验、产品测评、生活科技',t:['亮色','活泼','亲切'],bg:'#fef1f2',p:'#e11d48',tx:'#4c0519',c:'#fff',cb:'#fecdd3',l:'#fbb5bf',bb:'#fff1f2',sc:'#fff5f6',sb:'#fecdd3',tb:'#fce7f3'},
+{id:'slate',n:'石板灰',e:'Slate Pro',d:'中性灰调，专业沉稳',s:'企业级产品、商务播报、数据报告',t:['暗色','专业','播报','极简'],bg:'#1e2028',p:'#94a3b8',tx:'#cbd5e1',c:'#282c36',cb:'#3b4252',l:'#4a5568',bb:'#252830',sc:'#252830',sb:'#3b4252',tb:'#282c36'},
+{id:'synth',n:'合成波',e:'Synthwave',d:'80 年代复古霓虹，紫粉橙色系',s:'复古主题、创意视频、音乐/文化',t:['暗色','复古','激进'],bg:'#0d0221',p:'#ff2975',tx:'#f0e6ff',c:'#1a0533',cb:'#2d0a4e',l:'#3d1a5f',bb:'#150830',sc:'#120528',sb:'#2d0a4e',tb:'#1a0533'},
+{id:'arctic',n:'北极冰蓝',e:'Arctic Ice',d:'极浅蓝色底，清爽现代',s:'清洁科技、医疗健康、北欧风产品',t:['亮色','科技','极简'],bg:'#f0f9ff',p:'#0284c7',tx:'#0c4a6e',c:'#fff',cb:'#bae6fd',l:'#7dd3fc',bb:'#e0f2fe',sc:'#f8fbff',sb:'#bae6fd',tb:'#e0f2fe'},
+{id:'amber',n:'琥珀终端',e:'Amber Console',d:'复古琥珀色终端，温暖怀旧',s:'复古计算、历史回顾、终端演示',t:['暗色','复古','科技'],bg:'#1a1500',p:'#ffb000',tx:'#f5e6c8',c:'#2a2200',cb:'#3d3400',l:'#4d4000',bb:'#252000',sc:'#201a00',sb:'#3d3400',tb:'#2a2200'},
+{id:'paper',n:'纸张白',e:'Paper White',d:'米白纸张质感，学术文档风格',s:'学术解读、文档教程、知识整理',t:['亮色','教育','亲切','极简'],bg:'#fffef7',p:'#92400e',tx:'#292524',c:'#fff',cb:'#e7e5e4',l:'#d6d3d1',bb:'#fef3c7',sc:'#fffef5',sb:'#e7e5e4',tb:'#f5f5f4'},
+{id:'bold',n:'强对比',e:'Bold Contrast',d:'纯黑底+红色强调，极致对比度',s:'强观点吐槽、产品批评、热点评论',t:['暗色','吐槽','激进','高对比'],bg:'#000',p:'#ff0000',tx:'#fff',c:'#111',cb:'#333',l:'#444',bb:'#1a0000',sc:'#0a0a0a',sb:'#333',tb:'#111'},
+{id:'pastel',n:'柔和粉彩',e:'Soft Pastel',d:'柔和紫色系粉彩，温和不刺眼',s:'入门教程、温和讲解、科普教育',t:['亮色','温暖','教育','亲切'],bg:'#faf5ff',p:'#8b5cf6',tx:'#3b0764',c:'#fff',cb:'#e9d5ff',l:'#c4b5fd',bb:'#f3e8ff',sc:'#fdfaff',sb:'#e9d5ff',tb:'#f3e8ff'},
+{id:'carbon',n:'碳纤维',e:'Carbon Dark',d:'深灰金属质感，科技高端',s:'硬件评测、汽车科技、高端电子',t:['暗色','科技','产品','专业'],bg:'#18181b',p:'#f97316',tx:'#e4e4e7',c:'#27272a',cb:'#3f3f46',l:'#52525b',bb:'#272018',sc:'#1f1f23',sb:'#3f3f46',tb:'#27272a'}
+];
+
+const ALL_TAGS=[...new Set(S.flatMap(s=>s.t))].sort();
+const active=new Set();
+let selected=null;
+
+// tag bar
+const bar=document.getElementById('tagBar');
+const rst=document.createElement('button');
+rst.className='tag-btn reset';rst.textContent='清除筛选';
+rst.onclick=()=>{active.clear();document.querySelectorAll('.tag-btn:not(.reset)').forEach(b=>b.classList.remove('active'));filter()};
+bar.appendChild(rst);
+ALL_TAGS.forEach(tag=>{
+  const b=document.createElement('button');b.className='tag-btn';b.textContent=tag;
+  b.onclick=()=>{active.has(tag)?active.delete(tag):active.add(tag);b.classList.toggle('active');filter()};
+  bar.appendChild(b);
+});
+const cnt=document.createElement('span');cnt.className='count';cnt.id='cnt';
+bar.appendChild(cnt);
+
+function filter(){
+  let n=0;
+  document.querySelectorAll('.card').forEach(c=>{
+    const tags=c.dataset.tags.split(',');
+    const show=active.size===0||[...active].some(t=>tags.includes(t));
+    c.classList.toggle('hidden',!show);
+    if(show)n++;
+  });
+  cnt.textContent=`${n} / ${S.length}`;
+}
+filter();
+
+// render cards
+const grid=document.getElementById('grid');
+S.forEach(s=>{
+  const d=document.createElement('div');d.className='card';d.dataset.tags=s.t.join(',');d.dataset.id=s.id;
+  d.innerHTML=`
+<div class="mf" style="background:${s.bg}"><div class="mc">
+<div class="mt" style="color:${s.tx}">视觉风格预览</div>
+<div class="mb">
+<div class="mk" style="background:${s.c};border:1px solid ${s.cb}">
+<div class="mkt" style="color:${s.p}">特性展示</div>
+<div class="ml s" style="background:${s.l}"></div>
+<div class="ml m" style="background:${s.l}"></div>
+<div class="ml" style="background:${s.l}"></div>
+<div class="mbg" style="background:${s.bb};color:${s.p}">标签</div></div>
+<div class="ms" style="background:${s.sc};border-color:${s.sb}">
+<div class="mtb" style="background:${s.tb}"><div class="md" style="background:#ff5f57"></div><div class="md" style="background:#ffbd2e"></div><div class="md" style="background:#28c840"></div></div>
+<div class="msb" style="color:${s.tx}"><div class="ml m" style="background:${s.l}"></div><div class="ml" style="background:${s.l}"></div></div></div>
+</div></div></div>
+<div class="sl"><div class="sn">${s.n} <span class="sen">${s.e}</span></div>
+<div class="sd">${s.d}</div><div class="ss">适合：${s.s}</div>
+<div class="st">${s.t.map(t=>`<span class="stag">${t}</span>`).join('')}</div>
+<div class="pa"><div class="cd" style="background:${s.bg}" title="背景"></div><div class="cd" style="background:${s.p}" title="主色"></div><div class="cd" style="background:${s.tx}" title="文字"></div><div class="cd" style="background:${s.c}" title="卡片"></div><div class="cd" style="background:${s.cb}" title="边框"></div></div></div>`;
+  d.onclick=()=>selectCard(d,s);
+  grid.appendChild(d);
+});
+
+function selectCard(el,s){
+  document.querySelectorAll('.card').forEach(c=>c.classList.remove('sel'));
+  el.classList.add('sel');selected=s;
+  const info=document.getElementById('selInfo');info.classList.add('show');
+  document.getElementById('selName').textContent=`${s.n} (${s.e})`;
+  document.getElementById('themeCode').textContent=
+`export const COLORS = {
+  bg: '${s.bg}',       // 背景
+  primary: '${s.p}',   // 主色/强调色
+  text: '${s.tx}',     // 正文文字
+  card: '${s.c}',      // 卡片背景
+  cardBorder: '${s.cb}',// 卡片边框
+  badge: '${s.bb}',    // 标签背景
+  screen: '${s.sc}',   // 截图容器背景
+  screenBorder:'${s.sb}',// 截图边框
+  titlebar: '${s.tb}', // 窗口标题栏
+};`;
+}
+
+function copyTheme(){
+  const code=document.getElementById('themeCode').textContent;
+  navigator.clipboard.writeText(code).then(()=>{
+    const btn=document.querySelector('.copy-btn');btn.textContent='已复制';
+    setTimeout(()=>btn.textContent='复制',1500);
+  });
+}
+</script>
+</body>
+</html>

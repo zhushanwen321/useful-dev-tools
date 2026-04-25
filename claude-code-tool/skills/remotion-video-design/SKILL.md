@@ -1,25 +1,31 @@
 ---
 name: remotion-video-design
-description: Use when starting a new Remotion video project, adding scenes to an existing video, or converting a script into a video. Handles asset readiness, pronunciation pre-check, segment-based voiceover generation, subtitle-based timeline calculation, and produces a complete design spec. Required before remotion-video-development. Also handles voiceover generation and timeline alignment via remotion-tools scripts.
+description: Use when starting a new Remotion video project, adding scenes to an existing video, or converting a script into a video. Handles creative direction, script review, scene planning, pronunciation pre-check, segment-based voiceover generation, subtitle-based timeline calculation, and produces a complete design spec. Required before remotion-video-development. Also handles voiceover generation and timeline alignment via remotion-tools scripts.
 ---
 
 # Remotion Video Design
 
 ## Overview
 
-Before writing a single line of Remotion code, lock down the three biggest sources of rework: **assets, layout, and timing**. This skill guides a structured dialogue to produce a complete design spec (design-system + timeline.md + layout spec) that the execution skill can implement in one pass.
+Before writing code, resolve the three biggest sources of rework: **creative direction, assets, and timing**. This skill guides a structured dialogue through 6 phases, each with a gate requiring user confirmation.
 
-**Core principle:** 80% of video project rework comes from three "unknowns" — copy unknown, assets unknown, layout unknown. Resolve all three before coding.
+**Core principle:** 80% of video rework comes from "unknowns" — direction unknown, assets unknown, layout unknown. Resolve all three before coding.
+
+**File-first workflow:** Save deliverable files as early as possible. Users edit real files faster than they describe changes in conversation. When a phase produces a file, generate the first draft, save it to disk, then tell the user to open and edit it directly.
+
+**Skill Pipeline:** best-practices (reference) → **design (this skill)** → development → review
 
 ## When to Use
 
 - Starting a new Remotion video project
 - Adding new scenes to an existing video
-- Receiving a script/text document and asked to "make a video from this"
+- Converting a script/text document into a video
 
 **Do NOT use for:**
-- Minor tweaks to existing scenes (use remotion-video-review instead)
-- Technical Remotion questions (use remotion-best-practices instead)
+- Minor tweaks to existing scenes (use remotion-video-review)
+- Technical Remotion questions (use remotion-best-practices)
+- Screen recording / live demo videos (use OBS + 剪映)
+- Real people / camera footage (use 手机 + 剪映)
 
 **Pipeline position:** First step in video creation. Output feeds into remotion-video-development.
 
@@ -28,131 +34,197 @@ Before writing a single line of Remotion code, lock down the three biggest sourc
 ```dot
 digraph design {
     rankdir=TB;
-    "Check assets readiness" [shape=box];
-    "Assets ready?" [shape=diamond];
-    "Block: list missing assets" [shape=box];
-    "Define design system" [shape=box];
-    "Confirm with 1-frame render" [shape=box];
-    "User approves style?" [shape=diamond];
-    "Scene structure + layout spec" [shape=box];
-    "Calculate timeline (subtitle timestamps)" [shape=box];
-    "User reviews timeline?" [shape=diamond];
-    "Write design doc" [shape=doublecircle];
+    "Phase 0: Creative Direction" [shape=box];
+    "Direction OK?" [shape=diamond];
+    "Phase 1: Scene Planning" [shape=box];
+    "Assets Ready?" [shape=diamond];
+    "Phase 2: Voiceover + Timeline" [shape=box];
+    "Phase 3: Design System" [shape=box];
+    "Style OK?" [shape=diamond];
+    "Phase 4: Layout + Timing" [shape=box];
+    "Phase 5: Doc + Review" [shape=doublecircle];
 
-    "Check assets readiness" -> "Assets ready?";
-    "Assets ready?" -> "Block: list missing assets" [label="no"];
-    "Block: list missing assets" -> "Check assets readiness" [label="user provides"];
-    "Assets ready?" -> "Define design system" [label="yes"];
-    "Define design system" -> "Confirm with 1-frame render";
-    "Confirm with 1-frame render" -> "User approves style?";
-    "User approves style?" -> "Define design system" [label="no"];
-    "User approves style?" -> "Scene structure + layout spec" [label="yes"];
-    "Scene structure + layout spec" -> "Calculate timeline (char-ratio)";
-    "Calculate timeline (char-ratio)" -> "User reviews timeline?";
-    "User reviews timeline?" -> "Scene structure + layout spec" [label="adjust"];
-    "User reviews timeline?" -> "Write design doc" [label="approved"];
+    "Phase 0" -> "Direction OK?";
+    "Direction OK?" -> "Phase 0" [label="no"];
+    "Direction OK?" -> "Phase 1" [label="yes"];
+    "Phase 1" -> "Assets Ready?";
+    "Assets Ready?" -> "Phase 1" [label="no"];
+    "Assets Ready?" -> "Phase 2" [label="yes"];
+    "Phase 2" -> "Phase 3";
+    "Phase 3" -> "Style OK?";
+    "Style OK?" -> "Phase 3" [label="no"];
+    "Style OK?" -> "Phase 4" [label="yes"];
+    "Phase 4" -> "Phase 5";
 }
 ```
 
-## Step 1: Assets Readiness Gate
+## Phase 0: Creative Direction
 
-Check all three asset types exist and are production-ready:
+**Goal:** Determine "what this video should feel like."
+
+### 0.1 Video Type Assessment
+
+| Video Type | Remotion? | Alternative |
+|------------|----------|-------------|
+| 概念讲解/技术分享 | YES | - |
+| 信息汇总播报 | YES | - |
+| 产品吐槽/评论 | YES | - |
+| 操作演示教程 | PARTIAL (片头+概念部分) | OBS + 剪映做录屏部分 |
+| 日常 Vlog | NO | 手机 + 剪映 |
+
+If Remotion is not suitable, recommend alternatives and stop.
+
+### 0.2 Theme & Mood
+
+Discuss with the user:
 
 ```
-ASSETS CHECKLIST:
-[ ] Final copy/script text (text.md or equivalent)
-[ ] Voiceover audio files (public/voiceover/) — sentence-level generation
-    - Use `python ~/.claude/skills/remotion-tools/generate-voiceover.py`
-    - Requires `voiceover-text.json` in project root
-    - **Segment-based output:** one MP3 per sentence:
-      - `scene{N}_seg{K}.mp3` — audio for sentence K
-      - `scene{N}_seg{K}_subtitle.json` — timestamps from Minimax
-      - `scene{N}_segments.json` — metadata: cumulative frames, durations, offsets
-    - **CLI flags:**
-      - `--scene scene3` — only generate a specific scene
-      - `--segment 1` — only regenerate one sentence (requires --scene)
-      - `--force` — regenerate even if file exists (archives old as _v1, _v2)
-    - **Incremental:** skips existing segments unless `--force`
-    - **Version archiving:** old files renamed to `_v1`, `_v2` etc., never deleted
-    - Primary TTS: Minimax speech-2.8-hd, voice Chinese (Mandarin)_Gentleman
-    - Fallback: edge-tts zh-CN-YunxiNeural rate=+10%
-    - Key lookup: env var MINIMAX_API_KEY → .env file → llm-simple-router/minimax-key
-    - **Pronunciation rules:** Auto-loaded from `~/.claude/voice-replace-text/minimax-tts.json`
-[ ] Screenshot/image assets (public/images/)
-    - All filenames MUST be ASCII (staticFile requirement)
-    - Each image must have a stated purpose (which scene, which point)
-[ ] Font choice confirmed (default: NotoSansSC)
+1. 目标受众？（开发者/产品经理/普通用户）
+2. 情绪基调？（严肃专业/轻松幽默/吐槽讽刺/科普教育）
+3. 视觉风格？（紧凑高密度/松散留白/现代简约/温暖复古）
+4. 配色方向？（冷色科技/暖色亲切/高对比度/低饱和度）
+5. 节奏？（快节奏信息轰炸/慢节奏详细讲解）
 ```
 
-**If any asset missing:** List exactly what's needed and STOP. Do not proceed until user provides.
+Open `assets/style-gallery.html` in browser — 20 种预设视觉风格，支持标签筛选（暗色/亮色/科技/教育/吐槽/播报等），每种风格附带适合的视频类型说明和 theme.ts 配色常量。让用户从中选择或混搭。
 
-### Step 1a: Create voiceover-text.json
+如果预设风格都不合适，再讨论定制方案。
 
-After voiceover text is finalized, create `voiceover-text.json` in project root:
+### 0.3 Script Review
 
-```json
-{
-  "scenes": {
-    "scene1": "完整配音文本...",
-    "scene2": "完整配音文本..."
-  }
-}
+Read text.md / voiceover-text.json. Evaluate and suggest:
+
+| Check | What to Look For |
+|-------|-----------------|
+| 口播自然度 | 句子太长、嵌套太多 → 建议拆短句 |
+| 信息密度 | 每场景建议 1-2 个核心观点，≤ 5 个视觉元素 |
+| 节奏感 | 是否有高低起伏？全是信息轰炸还是缺少实例？ |
+| 场景切分点 | 话题转换、情绪变化、信息块切换处适合切场景 |
+| 书面语 vs 口语 | "首先我们需要了解" → "先说说什么是…" |
+
+**Present concrete adjustment suggestions.** User confirms final script.
+
+Save script to `voiceover-text.json` — user can edit this file directly for wording tweaks.
+
+✋ **Gate:** User confirms creative direction and script is finalized.
+
+**Git checkpoint:**
+```bash
+[ ! -d .git ] && git init  # initialize if needed
+git add -A && git commit -m "init: creative direction + script finalized"
 ```
 
-This file is the single source of truth for both `generate-voiceover.py` and `prepare-minimax-text.py`.
+## Phase 1: Scene Planning
 
-### Step 1b: Pronunciation Pre-check
+**Goal:** Determine "how many scenes, what each covers, what assets needed."
 
-**Before generating voiceover**, scan the voiceover text for TTS-prone words. This is a proactive check — catch pronunciation problems before paying for TTS generation.
+### 1.1 Scene Structure
 
-**Read existing rules:** `~/.claude/voice-replace-text/minimax-tts.json`
+Determine scene count (typical: 3-8 for 1-5 min video) and each scene's purpose:
 
-**Scan for these high-risk patterns:**
+```
+| Scene | Duration | Purpose      | Key Visuals         |
+|-------|----------|--------------|---------------------|
+| 1     | ~10s     | Hook         | Title + tagline     |
+| 2     | ~30s     | Context      | 3 info cards        |
+| 3     | ~45s     | Detail       | Screenshot + text   |
+```
 
-| Pattern | Examples | Why TTS fails |
-|---------|----------|---------------|
-| English brand/product names | Kimi, GLM, DeepSeek, doubao | Read letter-by-letter or wrong phonetics |
-| English + number combos | K2.5, K2.6, V4, GPT-4 | Number part mangled or skipped |
-| Hyphenated compounds | llm-simple-router, cross-platform | Read as separate words with wrong pauses |
-| All-caps abbreviations | API, TTS, LLM, DS | Spelled out instead of pronounced |
-| Mixed zh/en phrases | "一个月200块" | Number unit confusion |
-| Chinese tech terms | 豆包, 火山方舟 | May need context for correct reading |
+Information density rule: each scene ≤ 5 visual elements. If more, split the scene.
 
-**Pre-check process:**
+### 1.2 Asset Planning
 
-1. Read `~/.claude/voice-replace-text/minimax-tts.json` to see existing rules
-2. Scan voiceover text for words matching the high-risk patterns above that are NOT already in the rules
-3. If new risky words found, present to user:
-   ```
-   以下词语可能被 TTS 读错，建议添加发音替换规则：
-   - "DeepSeek" → 建议 "deep seek" （可能逐字母读）
-   - "GPT-4" → 建议 "G P T 四" （数字部分可能读错）
-   是否添加到 ~/.claude/voice-replace-text/minimax-tts.json？
-   ```
-4. User confirms → add to JSON, user declines → skip
-5. Only proceed to voiceover generation after pre-check is clear
+```
+ASSET CHECKLIST:
+[ ] voiceover-text.json — finalized script (Phase 0 output)
+[ ] Screenshots — which screens, ASCII filenames
+[ ] Images/icons — cards, backgrounds, decorations
+[ ] Video clips — short embedded clips (if any)
+[ ] Data — numbers/data for charts or comparisons
+```
 
-## Step 2: Design System
+User collects assets. Don't proceed until all confirmed available.
 
-Produce `src/styles/theme.ts` with:
+### 1.3 Pronunciation Pre-check
 
-| Category | Must Define | Default |
-|----------|-------------|---------|
-| Colors | bg, primary, secondary, text, error, success | Warm cream + deep red-orange |
-| Font sizes | xs through hero (6 levels) | 14px-80px |
-| Spacing | xs through xl (4 levels) | 6px-36px, compact bias |
-| Scene durations | Per-scene frame counts | From voiceover duration |
-| Image map | ASCII filename constants | All images used |
+Scan voiceover text for TTS-prone words. Check `~/.claude/tts-rules/tts-replacements.json` for existing rules.
 
-**One-frame verification:** Render a single frame of Scene 1 with `npx remotion still`. Show to user. Get "this feels right" before proceeding.
+| Pattern | Examples | Risk |
+|---------|----------|------|
+| English brands | Kimi, GLM, DeepSeek | Letter-by-letter reading |
+| English + numbers | K2.5, GPT-4 | Number mangled |
+| Hyphenated compounds | llm-simple-router | Wrong pauses |
+| All-caps abbreviations | API, TTS, LLM | Spelled out |
+| Mixed zh/en | "一个月200块" | Number confusion |
 
-## Step 3: Scene Structure + Layout Spec
+Suggest rules for uncovered words. User confirms → add to tts-replacements.json.
 
-For each scene, produce a structured layout description. **Use this format, not natural language:**
+✋ **Gate:** User confirms scene plan is reasonable and assets available.
+
+**Git checkpoint:** `git add -A && git commit -m "design: scene plan + asset list confirmed"`
+
+## Phase 2: Voiceover & Timeline
+
+Generate audio and extract timing data.
+
+### 2.1 Generate Voiceover
+
+```bash
+python ~/.claude/skills/remotion-tools/generate-voiceover.py
+```
+
+Output: `scene{N}_seg{K}.mp3` + `scene{N}_seg{K}_subtitle.json` + `scene{N}_segments.json` per scene.
+
+CLI flags: `--scene scene3`, `--segment 1`, `--force`
+
+### 2.2 Align Timeline
+
+```bash
+python ~/.claude/skills/remotion-tools/align-timeline.py
+```
+
+Output: `docs/timeline-auto.md` with suggested T constants.
+
+**If Minimax balance is low:**
+1. `python ~/.claude/skills/remotion-tools/prepare-minimax-text.py --scene sceneN`
+2. User generates at https://www.minimaxi.com/audio/text-to-speech
+3. Re-run `generate-voiceover.py` to build `segments.json`
+
+**Git checkpoint:** `git add -A && git commit -m "design: voiceover generated + timeline aligned"`
+
+## Phase 3: Design System
+
+**Goal:** Derive visual constants from Phase 0 creative direction.
+
+Produce `src/styles/theme.ts`:
+
+| Category | Must Define | Source |
+|----------|-------------|--------|
+| Colors | bg, primary, secondary, text, error, success | Phase 0 mood |
+| Font sizes | xs through hero (6 levels) | Phase 0 density |
+| Spacing | xs through xl (4 levels) | Phase 0 compact/spacious |
+| Scene durations | Per-scene frame counts | segments.json total_frames |
+| Image map | ASCII filename constants | Phase 1 asset list |
+
+**One-frame verification:** Render Scene 1 with `npx remotion still`. Show to user.
+
+Generate `theme.ts` from the selected style gallery colors. User can open and edit this file directly to tweak individual colors.
+
+✋ **Gate:** User says "visual feel is right."
+
+**Git checkpoint:** `git add -A && git commit -m "design: theme.ts visual system confirmed"`
+
+## Phase 4: Layout & Timing
+
+**Goal:** Define per-scene layout and animation timing.
+
+### 4.1 Layout Spec
+
+For each scene, produce:
 
 ```yaml
 sceneN:
-  voiceover: "exact text from voiceover"
+  voiceover: "exact text"
   layout:
     type: vertical | horizontal | grid
     regions:
@@ -166,93 +238,108 @@ sceneN:
         alignment: flex-start | flex-end | center | stretch
   elements:
     - id: elem1
-      type: text | card | image | bar-chart | block
+      type: text | card | image | bar-chart | block | video
       content: "..."
       style: { fontSize, color, fontWeight }
       timing: { enter: frameN, animation: fadeIn | bounce | typewriter }
-  image_rules:
-    - MUST use objectFit: contain (never cover for screenshots)
-    - MUST have macOS title bar for screenshot windows
-    - MUST have caption below
 ```
 
-**Layout principles (apply to ALL scenes):**
-- Prefer flex flow over absolute positioning for ordered elements
-- Use absolute positioning ONLY for overlay elements
-- Use `alignItems: "flex-end"` for bottom alignment, not hardcoded heights
-- Use `margin: "0 auto"` + fixed width for centered sections
-- Content width: 80% or fixed (e.g., 1344px), never percentage for precise layouts
+**Layout principles:**
+- Flex flow for ordered content, absolute ONLY for overlays
+- `alignItems: "flex-end"` for bottom alignment
+- `margin: "0 auto"` + fixed width for centering
+- `objectFit: "contain"` ALWAYS for screenshots
+- macOS title bar for screenshot containers
 
-## Step 4: Timeline Calculation (Minimax Subtitle Timestamps)
+### 4.2 Scene Final-Frame Mockups
 
-**Primary method:** Use Minimax TTS `subtitle_enable` feature which returns sentence-level timestamps.
+For PPT-like static scenes (info cards, comparisons, title cards), generate HTML mockups showing each scene's **final frame** — what the viewer sees after all animations complete.
 
-### Workflow
+**Why:** HTML mockup iterates in seconds (write → browser refresh), vs Remotion code iterates in minutes (code → tsc → render). For layout-heavy scenes, the final frame IS the main visual.
 
-1. **Generate voiceover** with `~/.claude/skills/remotion-tools/generate-voiceover.py` — outputs per-segment `scene{N}_seg{K}_subtitle.json` + `scene{N}_segments.json`
-2. **Run alignment script** to extract precise frame numbers:
-   ```bash
-   python ~/.claude/skills/remotion-tools/align-timeline.py
-   ```
-   Reads `*_segments.json` to auto-discover scenes, accumulates segment offsets, produces `docs/timeline-auto.md`
-3. **Map segments to animations:** For each animation trigger point, find which subtitle segment it belongs to:
-   - If animation aligns with a segment **start** → use `seg_begin_frame` directly
-   - If animation is **within** a segment → use character-ratio inside that segment only:
-     ```
-     seg_start = subtitle_seg.begin_frame
-     seg_duration = subtitle_seg.end_frame - subtitle_seg.begin_frame
-     offset_frames = (chars_before / seg_total_chars) * seg_duration
-     animation_frame = seg_start + offset_frames
-     ```
+**How:**
+1. Create one HTML file per scene: `docs/mockups/scene{N}-final.html`
+2. Use the style's color palette (from Phase 0 selection) as inline CSS
+3. Include all elements visible at the scene's last frame
+4. Use fixed 1920×1080 viewport dimensions
+5. User opens files in browser, gives feedback on layout/spacing/sizing
 
-### Output format (`docs/timeline.md`)
+**Scope:** Only for scenes where layout is the primary concern. Skip for pure animation scenes (kinetic text, transitions).
 
-```markdown
-## SceneN (X frames, ~Ys)
+### 4.3 Timeline Mapping
 
-### Subtitle segments (from Minimax)
-| Seg | Begin Frame | End Frame | Duration | Text |
-|-----|-------------|-----------|----------|------|
-| 0   | 15          | 443       | 428f     | 昨晚买的... |
-| 1   | 448         | 846       | 398f     | 右侧上面... |
+Map subtitle timestamps to animation triggers:
 
-### Animation timeline
-| Frame | Animation | Matches voiceover | Source |
-|-------|-----------|-------------------|--------|
-| 15    | Title     | seg0 start        | subtitle |
-| 210   | Left img  | "左侧是实际..."   | seg0 char-ratio |
-| 448   | Right top | seg1 start        | subtitle |
-```
+- Animation aligns with segment **start** → use `seg_begin_frame` directly
+- Animation **within** a segment → character-ratio:
+  ```
+  seg_start = subtitle_seg.begin_frame
+  seg_duration = subtitle_seg.end_frame - subtitle_seg.begin_frame
+  offset_frames = (chars_before / seg_total_chars) * seg_duration
+  animation_frame = seg_start + offset_frames
+  ```
+- Fallback (no subtitle files) → pure character-ratio
 
-**Key advantage:** Subtitle timestamps provide paragraph-level anchors (±1 frame accuracy). Character-ratio is only used for intra-paragraph positioning, eliminating cumulative error.
+### 4.4 Template Reuse Assessment
 
-**Fallback:** If subtitle files are missing (edge-tts fallback, API error), use pure character-ratio method as documented in remotion-best-practices.
+Mark which components can be reused across videos:
+- **Reusable:** title cards, transition animations, info cards, closing screens
+- **Video-specific:** unique data visualizations, specific screenshots
 
-## Step 5: Write Design Doc
+Reusable components → extract to shared modules during development.
+
+## Phase 5: Design Doc + Review
 
 Save to `docs/video-design.md`:
-- Design system summary (colors, fonts, spacing)
-- Per-scene layout spec (structured YAML)
-- Timeline reference (link to timeline.md)
-- Asset list with filenames
+- Creative direction summary (mood, tone, style keywords from Phase 0)
+- Per-scene layout spec (structured YAML from Phase 4)
+- Timeline reference (link to timeline-auto.md)
+- Asset list with filenames (from Phase 1)
+- Template reuse plan (from Phase 4.3)
 
-**Design review (two layers):**
+### Review
 
-1. **Self-review checklist** — fix inline, no subagent needed:
+1. **Self-review checklist:**
    - [ ] Every voiceover segment has a corresponding animation
    - [ ] Every image asset is referenced by ASCII filename
    - [ ] Layout uses flex flow (not absolute) for ordered content
    - [ ] No `objectFit: cover` for screenshots
    - [ ] Voiceover text and page text are semantically consistent
-   - [ ] TTS pronunciation fixes noted (e.g., "doubao" → "豆包" in voiceover)
+   - [ ] Information density per scene ≤ 5 visual elements
+   - [ ] TTS pronunciation fixes documented
 
-2. **Independent reviewer** — dispatch subagent using `design-reviewer-prompt.md` in this skill directory. Checks completeness, layout consistency, asset alignment, timeline accuracy, YAGNI. Only flags issues that would cause rework during implementation.
+2. **Independent reviewer** — dispatch subagent using `design-reviewer-prompt.md`
 
-**Transition:** After design review passes and user approves, invoke remotion-video-development skill.
+## Transition
+
+After design review passes and user approves:
+
+→ **Invoke remotion-video-development** to implement scenes.
+
+If Remotion handles only partial content (e.g., title cards + data viz, but demo parts need screen recording):
+
+→ Suggest **hybrid workflow**: Remotion renders programmatic parts as MP4 segments, OBS records demo parts, FFmpeg concatenates:
+```bash
+ffmpeg -f concat -safe 0 -i filelist.txt -c copy output.mp4
+```
+
+**Git checkpoint:** `git add -A && git commit -m "design: video-design.md complete"`
+
+## Deliverables
+
+| Phase | Output Files |
+|-------|-------------|
+| Phase 0 | `voiceover-text.json` (finalized script), selected style from `assets/style-gallery.html` |
+| Phase 1 | Assets in `public/images/` |
+| Phase 2 | `public/voiceover/scene{N}_seg{K}.mp3`, `*_subtitle.json`, `*_segments.json`, `docs/timeline-auto.md` |
+| Phase 3 | `src/styles/theme.ts` |
+| Phase 4 | `docs/mockups/scene{N}-final.html` (per-scene final-frame mockups) |
+| Phase 4-5 | `docs/video-design.md` |
 
 ## Red Flags
 
-- User says "just start coding, we'll figure it out" → Resist. List what's unknown.
+- User says "just start coding" → Resist. List what's unknown.
 - No voiceover audio yet → Generate first, frame counts depend on duration.
-- User describes layout as "move X a bit to the left" → Ask for structured description.
-- Images have Chinese filenames → Rename to ASCII before proceeding.
+- User describes layout as "move X a bit" → Ask for structured description.
+- Images with Chinese filenames → Rename to ASCII.
+- Script has 10+ paragraphs for one scene → Split into multiple scenes.

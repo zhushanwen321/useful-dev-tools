@@ -11,6 +11,8 @@ After implementing Remotion scenes, users preview in Remotion Studio and see vis
 
 **Core principle:** Visual feedback is inherently imprecise. Don't guess — ask structured questions that produce precise layout specifications.
 
+**File-first workflow:** After applying each fix, save the file and tell the user what changed and where. Users can verify and make additional edits directly in the file rather than describing every adjustment.
+
 ## When to Use
 
 - User says "the layout doesn't look right" after previewing
@@ -37,6 +39,7 @@ digraph review {
     "Timing issue" [shape=box];
     "Content issue" [shape=box];
     "Size issue" [shape=box];
+    "Density issue" [shape=box];
     "Pronunciation issue" [shape=box];
     "Structured feedback form" [shape=box];
     "Translate to code" [shape=box];
@@ -50,11 +53,13 @@ digraph review {
     "Classify issues" -> "Timing issue" [label="sync/pace"];
     "Classify issues" -> "Content issue" [label="text/image"];
     "Classify issues" -> "Size issue" [label="too small/big"];
+    "Classify issues" -> "Density issue" [label="crowded/busy"];
     "Classify issues" -> "Pronunciation issue" [label="读错/发音"];
     "Layout issue" -> "Structured feedback form";
     "Timing issue" -> "Structured feedback form";
     "Content issue" -> "Structured feedback form";
     "Size issue" -> "Structured feedback form";
+    "Density issue" -> "Structured feedback form";
     "Pronunciation issue" -> "Structured feedback form";
     "Structured feedback form" -> "Translate to code";
     "Translate to code" -> "tsc + render verify";
@@ -83,6 +88,7 @@ Listen to the user's feedback and classify:
 | Timing | "too early", "too late", "appears before mention" | T constants don't match voiceover |
 | Content | "wrong text", "wrong image", "should say" | Copy/image mismatch |
 | Size | "too small", "too big", "can't see" | Fixed dimensions too large/small |
+| Density | "too crowded", "信息太多", "can't focus", "busy" | Too many visual elements per scene |
 | Pronunciation | "读错了", "发音不对", "听起来怪", "读成了字母" | TTS mispronouncing a word |
 
 ## Step 3: Structured Feedback Form
@@ -175,7 +181,7 @@ Confirm? (also need to update voiceover?)
    Should sound like: "key mi K 二点六"
    ```
 
-2. Check if rule exists in `~/.claude/voice-replace-text/minimax-tts.json`:
+2. Check if rule exists in `~/.claude/tts-rules/tts-replacements.json`:
    - If missing → add new rule
    - If existing but wrong → update the replacement text
 
@@ -209,6 +215,24 @@ Confirm? (also need to update voiceover?)
 
 3. Apply the size change to the corresponding constant (e.g., `IMG_W`, `IMG_H`, `CARD_WIDTH`) in the scene file.
 
+### For Information Density Issues
+
+**When a scene has too many visual elements competing for attention.**
+
+1. Count visual elements in the problematic frame:
+   ```
+   Scene 3, frame 210: 8 distinct visual elements (3 cards, 2 images, 1 title, 1 subtitle, 1 annotation)
+   Recommended max: 5 per scene
+   ```
+
+2. Ask: "Which elements are essential at this moment?" Options:
+   - Split into two scenes (current scene becomes two sequential scenes)
+   - Stagger appearance (some elements appear later in the scene)
+   - Remove decorative elements that don't serve the voiceover
+   - Combine related information into a single card/panel
+
+3. If splitting a scene, update: `segments.json`, `theme.ts` duration, and `Composition.tsx`.
+
 ## Step 4: Translate to Code
 
 Map structured feedback to specific code changes:
@@ -226,7 +250,7 @@ Map structured feedback to specific code changes:
 | "appear earlier" | Decrease T.constant value |
 | "appear later" | Increase T.constant value |
 | "timing off" | Regenerate `align-timeline.py`, use subtitle anchor frames |
-| "读错了/发音不对" | Add rule to `minimax-tts.json`, regenerate with `--scene --segment --force`, re-align timeline |
+| "读错了/发音不对" | Add rule to `tts-replacements.json`, regenerate with `--scene --segment --force`, re-align timeline |
 
 ## Step 5: Verify
 
@@ -234,6 +258,15 @@ After each change:
 1. `npx tsc --noEmit` — no new errors
 2. Render affected frame again — `npx remotion still --frame=N`
 3. Ask user: "Does this look right now?"
+
+## Deliverables
+
+Modified files (no new files created):
+- Scene files: `src/scenes/Scene{N}.tsx` (layout/timing/size fixes)
+- Theme: `src/styles/theme.ts` (timing adjustments)
+- Voiceover: `public/voiceover/scene{N}_seg{K}.mp3` (pronunciation fixes)
+
+After each fix cycle: `git add -A && git commit -m "fix: <issue description>"`
 
 ## Anti-Patterns
 
@@ -276,3 +309,15 @@ Fix: Move FadeIn inside the container, wrap only the content block
 Problem: one has fixed height, other doesn't
 Fix: Use alignItems: "flex-end" on parent, remove fixed heights
 ```
+
+## Transition
+
+After all visual issues resolved:
+
+→ **Done.** Video is ready for export.
+
+If review reveals fundamental design issues (wrong mood, missing scenes):
+→ Go back to **remotion-video-design** Phase 0 to reassess creative direction.
+
+If only code-level fixes needed (alignment, timing, pronunciation):
+→ Fix inline, no need to revisit design.

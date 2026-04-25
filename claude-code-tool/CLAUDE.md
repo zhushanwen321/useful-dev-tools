@@ -101,4 +101,14 @@ superpowers有很多在执行完要review的地方，经常会被错误地执行
 #### PULL
 ** PULL操作时，必须使用rebase，不允许使用merge。**
 
+### 项目 Workspace 结构
+
+不少项目使用bare repo + 多 worktree 的工作模式，使用git时需要检测项目是否为这种模式：
+例如项目当前目录为 /Users/xxx/Code/llm-simple-router/
+- **Workspace 根目录**：`/Users/xxx/Code/llm-simple-router-workspace/`
+- **Bare Repo**：`/Users/xxx/Code/llm-simple-router-workspace/.bare`
+- 每个 worktree 是根目录下的一个子目录，对应一个分支
+
+**创建新 worktree**：`cd /Users/xxx/Code/llm-simple-router-workspace && git worktree add <目录名> -b <分支名> origin/main`
+
 ---

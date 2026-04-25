@@ -11,6 +11,8 @@ Implement a Remotion video scene-by-scene based on an approved design spec. Each
 
 **Core principle:** Code each scene to match the timeline.md exactly. Verify per scene, not at the end.
 
+**File-first workflow:** After implementing each scene, the file is on disk. For quick tweaks (timing constants, colors, spacing), tell the user which file and which constants to edit — faster than another conversation round.
+
 **Announce at start:** "Using remotion-video-development to implement the video."
 
 **Pipeline position:** Second step. Requires completed design from remotion-video-design. After implementation, transition to remotion-video-review.
@@ -115,6 +117,7 @@ After each scene:
 1. `npx tsc --noEmit` — must pass, no unused imports
 2. `npx remotion still --frame=30` — spot-check mid-scene frame
 3. Check: elements appear when voiceover mentions them
+4. `git add -A && git commit -m "feat: scene N implemented"`
 
 ## Composition
 
@@ -169,7 +172,7 @@ export const SCENE_N_DURATION = 450; // frames, from segments.json
 
 **Before generating voiceover**, run the pronunciation pre-check (full process in remotion-video-design Step 1b):
 
-1. Read `~/.claude/voice-replace-text/minimax-tts.json` for existing rules
+1. Read `~/.claude/tts-rules/tts-replacements.json` for existing rules
 2. Scan `voiceover-text.json` text for TTS-prone words NOT already in rules (English brands, mixed en/numbers, hyphenated compounds, all-caps abbreviations)
 3. If new risky words found, present suggestions to user and update JSON before generating
 
@@ -211,7 +214,7 @@ After voiceover generation, run `python ~/.claude/skills/remotion-tools/align-ti
 If voiceover is generated but pronunciation is wrong on playback:
 
 1. **Identify the mispronounced word** and which segment it's in (use `npx remotion studio` to find the time)
-2. **Add rule** to `~/.claude/voice-replace-text/minimax-tts.json`
+2. **Add rule** to `~/.claude/tts-rules/tts-replacements.json`
 3. **Regenerate only the affected segment:**
    ```bash
    python ~/.claude/skills/remotion-tools/generate-voiceover.py --scene scene3 --segment 1 --force
@@ -220,6 +223,15 @@ If voiceover is generated but pronunciation is wrong on playback:
 5. **Update theme.ts duration** if the scene length changed
 
 **TTS pronunciation fixes:** Voiceover text may differ from display text. Keep display text accurate, fix only pronunciation.
+
+## Deliverables
+
+| Output | Files |
+|--------|-------|
+| Scenes | `src/scenes/Scene{N}.tsx` |
+| Shared components | `src/components/{Name}.tsx` |
+| Composition | `src/Composition.tsx` (or `Root.tsx`) |
+| Updated theme | `src/styles/theme.ts` (if durations changed) |
 
 ## Error Prevention
 
@@ -241,6 +253,85 @@ If voiceover is generated but pronunciation is wrong on playback:
 | Fixed height on auto-content element | Remove height, let content determine |
 | `bottom: N` pushing content off-screen | Use `top: N` or flex flow instead |
 | Chinese filename in staticFile() | Rename file to ASCII |
+| **Audio overlap between scenes** | See "Audio Overlap Prevention" below |
+
+### Audio Overlap Prevention
+
+`<Sequence premountFor={N}>` 会让 Audio 组件在场景可见之前 N 帧就开始播放。当 TransitionSeries 的过渡时长叠加时，相邻场景的音频会重叠。
+
+**根本原因：**
+- `premountFor={30}` → 音频提前 30 帧（1s @ 30fps）播放
+- `TransitionSeries.Transition` fade 过渡占用 15 帧
+- 两者叠加 = 相邻场景音频重叠 1.5s
+
+**修复步骤：**
+
+1. **移除所有场景的 `premountFor`**
+   ```typescript
+   // 删除
+   <Sequence premountFor={30}>
+     <Audio ... />
+   </Sequence>
+
+   // 改为
+   <Audio ... />
+   ```
+
+2. **在 theme.ts 中为每个场景添加 45f 缓冲**
+   ```typescript
+   // 场景时长 = 实际音频时长 + 45f 静音缓冲
+   // 45f 缓冲确保：音频结束后 30f 静音 + 15f 过渡 = 场景间至少 1s 无音频重叠
+   export const SCENE_DURATIONS = {
+     scene1: 212,  // 167 + 45
+     // ...
+   } as const;
+   ```
+
+3. **验证**：在 `npx remotion studio` 中播放，确认场景切换时没有两段音频同时播放。
+
+## Template & Reuse
+
+During implementation, identify components marked as "reusable" in the design doc:
+
+- Extract shared components to `src/components/` (e.g., `InfoCard.tsx`, `TitleCard.tsx`, `MacWindow.tsx`)
+- Use props for data-driven content (title, subtitle, color, timing)
+- Keep animation logic inside the component, controlled by `delayFrames` prop
+
+## Batch Rendering
+
+For template-based videos (same layout, different data), use parameterized rendering:
+
+```typescript
+// Composition with props
+<Composition
+  id="MyVideo"
+  component={MyVideo}
+  durationInFrames={300}
+  fps={30}
+  width={1920}
+  height={1080}
+  defaultProps={{ title: "Default" }}
+/>
+```
+
+```bash
+# Batch render from dataset
+npx remotion render MyVideo --props='{"title":"Variant A"}' out/a.mp4
+```
+
+See `remotion-best-practices` rules/compositions.md for dataset rendering patterns.
+
+## Hybrid Workflow
+
+If Remotion handles only part of the video (e.g., title cards + data viz, but demo parts use screen recording):
+
+1. Render each Remotion segment as separate MP4
+2. Record demo parts with OBS
+3. Concatenate with FFmpeg:
+   ```bash
+   # filelist.txt: file 'remotion_intro.mp4'\nfile 'obs_demo.mp4'\nfile 'remotion_outro.mp4'
+   ffmpeg -f concat -safe 0 -i filelist.txt -c copy output.mp4
+   ```
 
 ## Completion
 
@@ -249,5 +340,14 @@ After all scenes implemented and verified:
 2. Compare each scene against timeline.md
 3. **Dispatch implementation reviewer** using `implementation-reviewer-prompt.md` in this skill directory. Checks timeline alignment, layout correctness, composition math, asset references, component consistency. Only flags issues that would produce wrong video output.
 4. Fix any issues found by reviewer
-5. Commit with descriptive message
-6. Transition to remotion-video-review for visual refinement
+5. `git add -A && git commit -m "feat: all scenes implemented + composition wired up"`
+
+## Transition
+
+→ **Invoke remotion-video-review** for visual refinement.
+
+If this is a template-based video (multiple variants from same design):
+→ Use `renderMedia()` with parameterized data to batch render all variants.
+
+If review reveals fundamental design issues (wrong mood, missing scenes):
+→ Go back to **remotion-video-design** Phase 0 to reassess creative direction.
