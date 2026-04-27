@@ -15,7 +15,27 @@ Implement a Remotion video scene-by-scene based on an approved design spec. Each
 
 **Announce at start:** "Using remotion-video-development to implement the video."
 
+**CWD discipline:** All shell commands MUST use absolute paths or be prefixed with `cd` to the project root. The Remotion CLI outputs paths relative to CWD, and `npx remotion render --scale=2` will place output in `$CWD/output/` — not necessarily the project's `output/` directory.
+
+```bash
+# ALWAYS start every Bash call with:
+cd /path/to/project-root && <actual command>
+
+# Or use absolute paths everywhere:
+npx remotion render CompositionID /absolute/path/to/output.mp4
+```
+
+**4K rendering:** Use `--scale=2` flag — keeps internal 1920x1080 resolution, outputs 3840x2160. No code changes needed.
+
 **Pipeline position:** Second step. Requires completed design from remotion-video-design. After implementation, transition to remotion-video-review.
+
+**CWD discipline — ALL Bash commands in this skill MUST:**
+- Use absolute paths for all file operations (output paths, file lists)
+- Start with `cd /absolute/path/to/project-root &&` when the context might have drifted
+- Never rely on relative CWD for `npx remotion render` output paths — CWD can change between commands
+
+**Rendering resolution:**`--scale=2` to the `npx remotion render` command to produce 4K output 
+- No changes needed to WIDTH/HEIGHT, font sizes, or layout — Remotion handles scaling internally
 
 ## Prerequisites
 
@@ -62,9 +82,38 @@ digraph dev {
 
 ## Per-Scene Implementation
 
+### Phase A-0: Layout Pre-Confirmation
+
+**Before writing ANY code**, present a text-based layout diagram to the user. This prevents the most common cause of rework: the user's mental picture not matching the implementation.
+
+**Steps:**
+1. Read the scene's design spec and voiceover text
+2. Identify all visual elements and their spatial relationships
+3. Create an ASCII layout diagram showing:
+   - Container boundaries (CONTAINER_W × CONTAINER_H)
+   - Relative positioning (title at top, left/right split, etc.)
+   - How elements connect (arrows, lines, direction indicators)
+   - Approximate proportions (60/40, centered column, etc.)
+4. **Present diagram to user and confirm** before proceeding
+5. Do NOT write code until layout is confirmed
+
+**Example format:**
+```
+┌──────────────────────────────────────────────┐
+│                  标题                         │
+├─────────────────────┬────────────────────────┤
+│    Element A         │   Element B            │
+│    (60%)             │   (40%)                │
+│                      │   - sub-element        │
+│                      │   - sub-element        │
+└─────────────────────┴────────────────────────┘
+```
+
+**If the scene involves multiple cards/panels with connecting arrows**, the diagram MUST show which card connects to which and in what direction (→, ↓, ↑, etc.).
+
 ### Phase A: Static Layout
 
-Build the scene with all elements visible (no animations, no FadeIn). Verify element sizes, positions, and text content match the layout spec.
+Build the scene with all elements visible (no animations, no FadeIn). Verify element sizes, positions, and text content match the CONFIRMED layout diagram.
 
 **Layout rules:**
 ```
@@ -213,16 +262,64 @@ After voiceover generation, run `python ~/.claude/skills/remotion-tools/align-ti
 
 If voiceover is generated but pronunciation is wrong on playback:
 
-1. **Identify the mispronounced word** and which segment it's in (use `npx remotion studio` to find the time)
+1. **Identify the mispronounced word** and which scene it's in
 2. **Add rule** to `~/.claude/tts-rules/tts-replacements.json`
-3. **Regenerate only the affected segment:**
+   - Rules sorted by key length (longest first), so compound rules like `"Kimi K2.6"` take priority over individual `"Kimi"` and `"K2.6"`
+   - Use enumeration comma `，` to create a short TTS pause between connected words (e.g., `"个子代理" → "个、子代理"`)
+3. **Regenerate the scene:**
    ```bash
-   python ~/.claude/skills/remotion-tools/generate-voiceover.py --scene scene3 --segment 1 --force
+   python ~/.claude/skills/remotion-tools/generate-voiceover.py --scene sceneN --force
    ```
-4. **Re-run timeline alignment:** `python ~/.claude/skills/remotion-tools/align-timeline.py` (timestamps may shift)
-5. **Update theme.ts duration** if the scene length changed
+   Note: `--scene` accepts only ONE scene at a time. For multiple scenes, run separately.
+
+**CRITICAL — After regeneration, complete this atomic sequence:**
+
+4. **Verify generation succeeded:**
+   ```bash
+   ls public/voiceover/sceneN_seg*.mp3 | grep -v _v
+   ```
+   If any segment is missing (API rate limit, etc.), restore from archived backup:
+   ```bash
+   cd public/voiceover
+   # Restore failed segments from latest archive (_v1, _v2, etc.)
+   for f in sceneN_seg*_v*.mp3; do
+     base=$(echo "$f" | sed 's/_v[0-9]*\.mp3$/.mp3/')
+     [ ! -f "$base" ] && mv "$f" "$base"
+   done
+   ```
+
+5. **Duration auto-updated:** `generate-voiceover.py` automatically updates `theme.ts` SCENE_DURATIONS.
+6. **Verify audio files exist:**
+   ```bash
+   ls public/voiceover/sceneN_seg*.mp3 | grep -v _v | wc -l
+   ```
+   Segment count must match `segments.json`. No ffmpeg merge needed — use multi-segment `<Audio>` in scene code (see Voiceover Integration section).
+
+**Failure recovery:** If `--force` archives original files to `_v1`/`_v2` and API fails, the original files are preserved in the archive. Always check segment count matches expected before proceeding.
+
+**API sample_rate:** The Minimax API rejects `sample_rate: 48000`. Valid values: `32000`, `44100`. The `generate-voiceover.py` script has this configured — update if API changes.
 
 **TTS pronunciation fixes:** Voiceover text may differ from display text. Keep display text accurate, fix only pronunciation.
+
+**Multiple scenes:** If regenerating multiple scenes, process one at a time to reduce blast radius from API failures. Verify each scene before moving to the next.
+
+### Post-Render Audio Verification
+
+After `npx remotion render`, run this check to catch silent/missing audio:
+
+```bash
+VO="public/voiceover"
+for s in scene1 scene2 scene3 scene4 scene5 scene6 scene7 scene8 scene9 scene10 scene11 scene12; do
+  dur=$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 "$VO/${s}.mp3" 2>/dev/null)
+  if [ -z "$dur" ] || [ "$(echo "$dur < 1" | bc 2>/dev/null)" = "1" ]; then
+    echo "❌ $s: MISSING or <1s"
+  else
+    echo "✅ $s: ${dur}s"
+  fi
+done
+```
+
+All 12 scenes must return `✅` with duration > 1s before considering the render complete.
 
 ## Deliverables
 
@@ -230,6 +327,7 @@ If voiceover is generated but pronunciation is wrong on playback:
 |--------|-------|
 | Scenes | `src/scenes/Scene{N}.tsx` |
 | Shared components | `src/components/{Name}.tsx` |
+| Shared animation utils | `src/utils/animation.ts` (ease, fadeIn) |
 | Composition | `src/Composition.tsx` (or `Root.tsx`) |
 | Updated theme | `src/styles/theme.ts` (if durations changed) |
 
