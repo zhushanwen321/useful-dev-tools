@@ -66,6 +66,10 @@ KNOWLEDGE_ENGINE_DIR="$CLAUDE_DIR/knowledge-engine"
 
 CLAUDE_HOME="$HOME/.claude"
 OPENCODE_HOME="$HOME/.opencode"
+AGENTS_HOME="$HOME/.agents"
+
+# 各平台支持的模块（空数组 = 支持所有模块）
+AGENTS_ONLY_MODULES=("skills")
 
 # ======================== 变更计划机制 ========================
 # PLAN 数组格式: "type|arg1|arg2|arg3"
@@ -201,6 +205,12 @@ plan_install_for_home() {
   local HOME_DIR="$1"
   local BACKUP_DIR="$HOME_DIR/bak"
 
+  # ~/.agents: 仅安装 skills
+  local MODULE_FILTER=""
+  if [ "$HOME_DIR" = "$AGENTS_HOME" ]; then
+    MODULE_FILTER="agents-only"
+  fi
+
   local MODULE
   for MODULE in "${MODULES[@]+"${MODULES[@]}"}"; do
     local NAME TYPE
@@ -208,6 +218,11 @@ plan_install_for_home() {
     TYPE="$(parse_module_type "$MODULE")"
 
     if ! is_module_selected "$NAME"; then
+      continue
+    fi
+
+    # 按平台过滤不支持的模块
+    if [ "$MODULE_FILTER" = "agents-only" ] && ! is_module_applicable "$NAME" "$HOME_DIR"; then
       continue
     fi
 
@@ -403,17 +418,51 @@ is_module_selected() {
   [ "$val" = "1" ]
 }
 
+# 检查模块是否适用于目标平台
+# $1: 模块名  $2: 目标 home 目录
+is_module_applicable() {
+  local MODULE_NAME="$1"
+  local HOME_DIR="$2"
+
+  # ~/.agents 仅支持 skills
+  if [ "$HOME_DIR" = "$AGENTS_HOME" ]; then
+    local ALLOWED
+    for ALLOWED in "${AGENTS_ONLY_MODULES[@]}"; do
+      [ "$MODULE_NAME" = "$ALLOWED" ] && return 0
+    done
+    return 1
+  fi
+
+  return 0
+}
+
 # 展示模块 checklist 并获取用户选择
+# $1: 目标 home 目录（用于过滤不适用的模块）
 show_module_checklist() {
+  local TARGET_HOME="${1:-}"
   echo ""
   echo "--- [2/4] 选择要安装的模块 ---"
   echo ""
 
+  # 过滤出适用于目标平台的模块
+  local APPLICABLE_INDICES=()
   local IDX=0
-  local DEFAULTS=()
-
   local MODULE
   for MODULE in "${MODULES[@]+"${MODULES[@]}"}"; do
+    local NAME
+    NAME="$(parse_module_name "$MODULE")"
+    if [ -n "$TARGET_HOME" ] && ! is_module_applicable "$NAME" "$TARGET_HOME"; then
+      continue
+    fi
+    APPLICABLE_INDICES+=($IDX)
+    ((IDX++)) || true
+  done
+  IDX=0
+
+  local DEFAULTS=()
+
+  for MODULE_IDX in "${APPLICABLE_INDICES[@]+"${APPLICABLE_INDICES[@]}"}"; do
+    local MODULE="${MODULES[$MODULE_IDX]}"
     local NAME DESCRIPTION TYPE RISK
     NAME="$(parse_module_name "$MODULE")"
     DESCRIPTION="$(parse_module_description "$MODULE")"
@@ -446,6 +495,8 @@ show_module_checklist() {
     echo "  $IDX) [$RISK_LABEL] $DESCRIPTION$STATUS_LINE"
   done
 
+  local TOTAL_APPLICABLE=${#APPLICABLE_INDICES[@]}
+
   echo ""
   echo "  默认已选中低风险模块。"
   echo "  输入编号切换选择（如: 6 8），直接回车使用默认值。"
@@ -454,10 +505,11 @@ show_module_checklist() {
   local INPUT
   read -p "  选择 (回车确认): " INPUT
 
-  # 应用默认值
+  # 应用默认值（仅适用于的模块）
   reset_selections
   IDX=0
-  for MODULE in "${MODULES[@]+"${MODULES[@]}"}"; do
+  for MODULE_IDX in "${APPLICABLE_INDICES[@]+"${APPLICABLE_INDICES[@]}"}"; do
+    local MODULE="${MODULES[$MODULE_IDX]}"
     local NAME
     NAME="$(parse_module_name "$MODULE")"
     ((IDX++)) || true
@@ -466,11 +518,13 @@ show_module_checklist() {
     fi
   done
 
-  # 处理用户输入（切换选择）
+  # 处理用户输入（切换选择，映射展示编号到模块数组索引）
   if [ -n "$INPUT" ]; then
     for NUM in $INPUT; do
-      if [[ "$NUM" =~ ^[0-9]+$ ]] && [ "$NUM" -ge 1 ] && [ "$NUM" -le "${#MODULES[@]}" ]; then
-        local MODULE="${MODULES[$((NUM-1))]}"
+      if [[ "$NUM" =~ ^[0-9]+$ ]] && [ "$NUM" -ge 1 ] && [ "$NUM" -le "$TOTAL_APPLICABLE" ]; then
+        local REAL_IDX=$((NUM-1))
+        local MODULE_IDX="${APPLICABLE_INDICES[$REAL_IDX]}"
+        local MODULE="${MODULES[$MODULE_IDX]}"
         local NAME
         NAME="$(parse_module_name "$MODULE")"
         if is_module_selected "$NAME"; then
@@ -482,10 +536,11 @@ show_module_checklist() {
     done
   fi
 
-  # 展示最终选择
+  # 展示最终选择（仅适用于的模块）
   echo ""
   echo "  已选择的模块:"
-  for MODULE in "${MODULES[@]+"${MODULES[@]}"}"; do
+  for MODULE_IDX in "${APPLICABLE_INDICES[@]+"${APPLICABLE_INDICES[@]}"}"; do
+    local MODULE="${MODULES[$MODULE_IDX]}"
     local NAME DESCRIPTION
     NAME="$(parse_module_name "$MODULE")"
     DESCRIPTION="$(parse_module_description "$MODULE")"
@@ -503,8 +558,9 @@ show_target_menu() {
     echo "请选择目标:"
     echo "  1) Claude Code (~/.claude)"
     echo "  2) OpenCode (~/.opencode)"
-    echo "  3) 全部"
-    echo "  4) 返回上级"
+    echo "  3) pi / Codex (~/.agents)"
+    echo "  4) 全部"
+    echo "  5) 返回上级"
     echo ""
 }
 
@@ -1035,7 +1091,7 @@ new_handle_install() {
   echo "--- [1/4] 选择目标平台 ---"
   show_target_menu
   local target_choice
-  target_choice=$(get_choice "请输入选项 (1-4): " 1 4)
+  target_choice=$(get_choice "请输入选项 (1-5): " 1 5)
 
   local TARGET_DIRS=()
   local TARGET_NAMES=()
@@ -1053,19 +1109,31 @@ new_handle_install() {
       TARGET_NAMES=("~/.opencode")
       ;;
     3)
+      TARGET_DIRS=("$AGENTS_HOME")
+      TARGET_NAMES=("~/.agents")
+      ;;
+    4)
       TARGET_DIRS=("$CLAUDE_HOME")
       TARGET_NAMES=("~/.claude")
       if [ -d "$OPENCODE_HOME" ]; then
         TARGET_DIRS+=("$OPENCODE_HOME")
         TARGET_NAMES+=("~/.opencode")
       fi
+      TARGET_DIRS+=("$AGENTS_HOME")
+      TARGET_NAMES+=("~/.agents")
       ;;
-    4) return ;;
+    5) return ;;
   esac
 
   # [2/4] 选择模块
+  # 多目标时，展示所有目标平台的并集模块（每个目标在 plan 阶段自行过滤）
+  # 单目标时，仅展示该平台适用的模块
   reset_selections
-  show_module_checklist
+  if [ ${#TARGET_DIRS[@]} -eq 1 ]; then
+    show_module_checklist "${TARGET_DIRS[0]}"
+  else
+    show_module_checklist ""
+  fi
 
   # 检查是否有模块被选中
   local HAS_SELECTION=false
@@ -1169,7 +1237,7 @@ new_handle_uninstall() {
   echo ""
   show_target_menu
   local target_choice
-  target_choice=$(get_choice "请输入选项 (1-4): " 1 4)
+  target_choice=$(get_choice "请输入选项 (1-5): " 1 5)
 
   case "$target_choice" in
     1)
@@ -1190,6 +1258,10 @@ new_handle_uninstall() {
       fi
       ;;
     3)
+      uninstall_for_home "$AGENTS_HOME" "~/.agents"
+      log_install "UNINSTALL from ~/.agents" "all"
+      ;;
+    4)
       uninstall_for_home "$CLAUDE_HOME" "~/.claude"
       unconfigure_statusline
       echo ""
@@ -1199,9 +1271,10 @@ new_handle_uninstall() {
       if [ -d "$OPENCODE_HOME" ]; then
         uninstall_for_home "$OPENCODE_HOME" "~/.opencode"
       fi
+      uninstall_for_home "$AGENTS_HOME" "~/.agents"
       log_install "UNINSTALL all" "all"
       ;;
-    4) return ;;
+    5) return ;;
   esac
 
   echo "卸载完成。"

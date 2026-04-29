@@ -96,6 +96,34 @@ superpowers有很多在执行完要review的地方，经常会被错误地执行
 只有 subagent-driven-development 中的代码使用 superpowers:code-reviewer 这个agent （注意，也不是 code-reviewer）
 需要仔细分辨使用，不要错误使用。
 
+### Skill 跨工具兼容
+
+所有新生成的 skill 必须同时支持 Claude Code 和 Pi 两个工具。
+
+#### 全局 Skill
+
+1. 源文件写入：`/Users/zhushanwen/Code/useful-dev-tools/claude-code-tool/skills/<skill-name>/`
+2. 通过 symlink 链接到两个工具的全局目录：
+   - `~/.claude/skills/<skill-name>` → 源文件
+   - `~/.agents/skills/<skill-name>` → 源文件
+
+```bash
+# 示例：创建全局 skill 后建立 symlink
+ln -s /Users/zhushanwen/Code/useful-dev-tools/claude-code-tool/skills/<skill-name> ~/.claude/skills/<skill-name>
+ln -s /Users/zhushanwen/Code/useful-dev-tools/claude-code-tool/skills/<skill-name> ~/.agents/skills/<skill-name>
+```
+
+#### 项目级 Skill
+
+1. 源文件写入：`<project>/.claude/skills/<skill-name>/`
+2. 通过 symlink 链接到 Pi 的项目级目录：
+   - `<project>/.pi/skills/<skill-name>` → `<project>/.claude/skills/<skill-name>`
+
+```bash
+# 示例：创建项目 skill 后建立 symlink
+ln -s <project>/.claude/skills/<skill-name> <project>/.pi/skills/<skill-name>
+```
+
 ### Git 规范
 
 #### PULL
