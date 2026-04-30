@@ -21,6 +21,8 @@ MODULES=(
   "statusline|状态栏|settings|low|"
   "skill-inject|Skill 注入 Hook|settings|medium|"
   "knowledge-engine|知识引擎|settings+deps|high|bun,jq"
+  "pi-skills|pi Skills (→ ~/.pi/agent/skills)|symlink-pi-skill|low|"
+  "pi-agents|pi Agents (→ ~/.pi/agent/agents)|symlink-pi-agent|low|"
 )
 
 # 解析模块字段
@@ -67,9 +69,12 @@ KNOWLEDGE_ENGINE_DIR="$CLAUDE_DIR/knowledge-engine"
 CLAUDE_HOME="$HOME/.claude"
 OPENCODE_HOME="$HOME/.opencode"
 AGENTS_HOME="$HOME/.agents"
+PI_HOME="$HOME/.pi/agent"
 
 # 各平台支持的模块（空数组 = 支持所有模块）
 AGENTS_ONLY_MODULES=("skills")
+# pi 仅支持 skills 和 agents（不含 Claude Code 专用模块）
+PI_ONLY_MODULES=("pi-skills" "pi-agents")
 
 # ======================== 变更计划机制 ========================
 # PLAN 数组格式: "type|arg1|arg2|arg3"
@@ -205,12 +210,6 @@ plan_install_for_home() {
   local HOME_DIR="$1"
   local BACKUP_DIR="$HOME_DIR/bak"
 
-  # ~/.agents: 仅安装 skills
-  local MODULE_FILTER=""
-  if [ "$HOME_DIR" = "$AGENTS_HOME" ]; then
-    MODULE_FILTER="agents-only"
-  fi
-
   local MODULE
   for MODULE in "${MODULES[@]+"${MODULES[@]}"}"; do
     local NAME TYPE
@@ -222,7 +221,7 @@ plan_install_for_home() {
     fi
 
     # 按平台过滤不支持的模块
-    if [ "$MODULE_FILTER" = "agents-only" ] && ! is_module_applicable "$NAME" "$HOME_DIR"; then
+    if ! is_module_applicable "$NAME" "$HOME_DIR"; then
       continue
     fi
 
@@ -253,6 +252,69 @@ plan_install_for_home() {
             plan_symlink "$TARGET" "$CHILD" "$NAME/$CHILD_NAME"
           else
             plan_symlink "$TARGET" "$CHILD" "$NAME/$CHILD_NAME"
+          fi
+        done
+        ;;
+
+      symlink-pi-skill)
+        # pi skills: ~/agents/skills/<skill-dir>/ → ~/.pi/agent/skills/<skill-dir>/
+        local SRC_DIR="$CLAUDE_DIR/skills"
+        if [ ! -d "$SRC_DIR" ]; then continue; fi
+
+        local CHILD
+        for CHILD in "$SRC_DIR"/*; do
+          [ -e "$CHILD" ] || continue
+          local CHILD_NAME TARGET
+          CHILD_NAME="$(basename "$CHILD")"
+          TARGET="$PI_HOME/skills/$CHILD_NAME"
+
+          if [ -L "$TARGET" ]; then
+            if is_our_symlink "$TARGET" "$CHILD"; then
+              continue
+            else
+              plan_symlink "$TARGET" "$CHILD" "pi/skills/$CHILD_NAME (替换外部链接)"
+            fi
+          elif [ -e "$TARGET" ]; then
+            local TIMESTAMP BACKUP
+            TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+            BACKUP="${BACKUP_DIR}/${CHILD_NAME}_${TIMESTAMP}"
+            plan_backup "$TARGET" "$BACKUP"
+            plan_symlink "$TARGET" "$CHILD" "pi/skills/$CHILD_NAME"
+          else
+            plan_symlink "$TARGET" "$CHILD" "pi/skills/$CHILD_NAME"
+          fi
+        done
+        ;;
+
+      symlink-pi-agent)
+        # pi agents: agents/<name>/agent.md → ~/.pi/agent/agents/<name>.md
+        local SRC_DIR="$CLAUDE_DIR/agents"
+        if [ ! -d "$SRC_DIR" ]; then continue; fi
+
+        local CHILD
+        for CHILD in "$SRC_DIR"/*; do
+          [ -d "$CHILD" ] || continue
+          local CHILD_NAME AGENT_MD TARGET
+          CHILD_NAME="$(basename "$CHILD")"
+          AGENT_MD="$CHILD/agent.md"
+          # 跳过没有 agent.md 的目录
+          [ -f "$AGENT_MD" ] || continue
+          TARGET="$PI_HOME/agents/$CHILD_NAME.md"
+
+          if [ -L "$TARGET" ]; then
+            if is_our_symlink "$TARGET" "$AGENT_MD"; then
+              continue
+            else
+              plan_symlink "$TARGET" "$AGENT_MD" "pi/agents/$CHILD_NAME (替换外部链接)"
+            fi
+          elif [ -e "$TARGET" ]; then
+            local TIMESTAMP BACKUP
+            TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+            BACKUP="${BACKUP_DIR}/${CHILD_NAME}.md_${TIMESTAMP}"
+            plan_backup "$TARGET" "$BACKUP"
+            plan_symlink "$TARGET" "$AGENT_MD" "pi/agents/$CHILD_NAME"
+          else
+            plan_symlink "$TARGET" "$AGENT_MD" "pi/agents/$CHILD_NAME"
           fi
         done
         ;;
@@ -433,6 +495,20 @@ is_module_applicable() {
     return 1
   fi
 
+  # ~/.pi/agent 仅支持 pi 专用模块
+  if [ "$HOME_DIR" = "$PI_HOME" ]; then
+    local ALLOWED
+    for ALLOWED in "${PI_ONLY_MODULES[@]}"; do
+      [ "$MODULE_NAME" = "$ALLOWED" ] && return 0
+    done
+    return 1
+  fi
+
+  # Claude Code / OpenCode 不支持 pi 专用模块
+  case "$MODULE_NAME" in
+    pi-skills|pi-agents) return 1 ;;
+  esac
+
   return 0
 }
 
@@ -558,9 +634,10 @@ show_target_menu() {
     echo "请选择目标:"
     echo "  1) Claude Code (~/.claude)"
     echo "  2) OpenCode (~/.opencode)"
-    echo "  3) pi / Codex (~/.agents)"
-    echo "  4) 全部"
-    echo "  5) 返回上级"
+    echo "  3) Agent Skills (~/.agents)"
+    echo "  4) pi (~/.pi/agent)"
+    echo "  5) 全部"
+    echo "  6) 返回上级"
     echo ""
 }
 
@@ -711,6 +788,71 @@ uninstall_for_home() {
         echo "没有需要卸载的项目"
     else
         echo "已卸载 $UNINSTALLED_COUNT 个项目"
+    fi
+}
+
+# ======================== pi 专用卸载 ========================
+
+uninstall_for_pi() {
+    echo "--- 从 ~/.pi/agent 卸载 ---"
+
+    local UNINSTALLED_COUNT=0
+    local SRC_DIR="$CLAUDE_DIR"
+
+    # 卸载 pi skills: ~/.pi/agent/skills/<skill-dir> → ~/skills/<skill-dir>
+    local PI_SKILLS_DIR="$PI_HOME/skills"
+    if [ -d "$PI_SKILLS_DIR" ]; then
+      local CHILD
+      for CHILD in "$PI_SKILLS_DIR"/*; do
+        [ -e "$CHILD" ] || continue
+        [ ! -L "$CHILD" ] && continue
+        local CHILD_SRC="$SRC_DIR/skills/$(basename "$CHILD")"
+        if is_our_symlink "$CHILD" "$CHILD_SRC"; then
+          echo "移除 pi skill: $CHILD"
+          rm "$CHILD"
+          ((UNINSTALLED_COUNT++)) || true
+        elif [ ! -e "$CHILD" ]; then
+          local LINK_TARGET
+          LINK_TARGET="$(readlink "$CHILD")"
+          if [[ "$LINK_TARGET" == *"$SRC_DIR"* ]]; then
+            echo "移除 pi skill 断链: $CHILD -> $LINK_TARGET"
+            rm "$CHILD"
+            ((UNINSTALLED_COUNT++)) || true
+          fi
+        fi
+      done
+    fi
+
+    # 卸载 pi agents: ~/.pi/agent/agents/<name>.md → ~/agents/<name>/agent.md
+    local PI_AGENTS_DIR="$PI_HOME/agents"
+    if [ -d "$PI_AGENTS_DIR" ]; then
+      local CHILD
+      for CHILD in "$PI_AGENTS_DIR"/*.md; do
+        [ -e "$CHILD" ] || continue
+        [ ! -L "$CHILD" ] && continue
+        local CHILD_NAME
+        CHILD_NAME="$(basename "$CHILD" .md)"
+        local CHILD_SRC="$SRC_DIR/agents/$CHILD_NAME/agent.md"
+        if is_our_symlink "$CHILD" "$CHILD_SRC"; then
+          echo "移除 pi agent: $CHILD"
+          rm "$CHILD"
+          ((UNINSTALLED_COUNT++)) || true
+        elif [ ! -e "$CHILD" ]; then
+          local LINK_TARGET
+          LINK_TARGET="$(readlink "$CHILD")"
+          if [[ "$LINK_TARGET" == *"$SRC_DIR"* ]]; then
+            echo "移除 pi agent 断链: $CHILD -> $LINK_TARGET"
+            rm "$CHILD"
+            ((UNINSTALLED_COUNT++)) || true
+          fi
+        fi
+      done
+    fi
+
+    if [ "$UNINSTALLED_COUNT" -eq 0 ]; then
+      echo "没有需要卸载的项目"
+    else
+      echo "已卸载 $UNINSTALLED_COUNT 个项目"
     fi
 }
 
@@ -1091,7 +1233,7 @@ new_handle_install() {
   echo "--- [1/4] 选择目标平台 ---"
   show_target_menu
   local target_choice
-  target_choice=$(get_choice "请输入选项 (1-5): " 1 5)
+  target_choice=$(get_choice "请输入选项 (1-6): " 1 6)
 
   local TARGET_DIRS=()
   local TARGET_NAMES=()
@@ -1113,6 +1255,10 @@ new_handle_install() {
       TARGET_NAMES=("~/.agents")
       ;;
     4)
+      TARGET_DIRS=("$PI_HOME")
+      TARGET_NAMES=("~/.pi/agent")
+      ;;
+    5)
       TARGET_DIRS=("$CLAUDE_HOME")
       TARGET_NAMES=("~/.claude")
       if [ -d "$OPENCODE_HOME" ]; then
@@ -1121,8 +1267,10 @@ new_handle_install() {
       fi
       TARGET_DIRS+=("$AGENTS_HOME")
       TARGET_NAMES+=("~/.agents")
+      TARGET_DIRS+=("$PI_HOME")
+      TARGET_NAMES+=("~/.pi/agent")
       ;;
-    5) return ;;
+    6) return ;;
   esac
 
   # [2/4] 选择模块
@@ -1237,7 +1385,7 @@ new_handle_uninstall() {
   echo ""
   show_target_menu
   local target_choice
-  target_choice=$(get_choice "请输入选项 (1-5): " 1 5)
+  target_choice=$(get_choice "请输入选项 (1-6): " 1 6)
 
   case "$target_choice" in
     1)
@@ -1262,6 +1410,10 @@ new_handle_uninstall() {
       log_install "UNINSTALL from ~/.agents" "all"
       ;;
     4)
+      uninstall_for_pi
+      log_install "UNINSTALL from ~/.pi/agent" "all"
+      ;;
+    5)
       uninstall_for_home "$CLAUDE_HOME" "~/.claude"
       unconfigure_statusline
       echo ""
@@ -1272,9 +1424,10 @@ new_handle_uninstall() {
         uninstall_for_home "$OPENCODE_HOME" "~/.opencode"
       fi
       uninstall_for_home "$AGENTS_HOME" "~/.agents"
+      uninstall_for_pi
       log_install "UNINSTALL all" "all"
       ;;
-    5) return ;;
+    6) return ;;
   esac
 
   echo "卸载完成。"

@@ -100,7 +100,7 @@ cd claude-code-tool
 
 安装脚本提供交互式菜单：
 
-1. 选择目标平台（Claude Code / OpenCode / 全部）
+1. 选择目标平台（Claude Code / OpenCode / Agent Skills / pi / 全部）
 2. 选择安装/卸载
 3. 确认执行
 
@@ -129,6 +129,15 @@ cd claude-code-tool
 - 知识引擎会在 `settings.json` 中注册 hooks（PostToolUse、Stop、SessionStart）
 - `skill-inject` 会在 `settings.json` 中注册 PreToolUse hook
 - 所有 settings.json 修改都通过 jq 原子操作（写临时文件后替换），不会损坏配置
+
+### pi 集成
+
+安装脚本支持将 skills 和 agents 安装到 [pi](https://github.com/nicholasgasior/pi-coding-agent)（`~/.pi/agent/`）：
+
+- **Skills** → `~/.pi/agent/skills/<skill-name>/`（与 `~/.agents/skills/` 相同的 symlink 策略）
+- **Agents** → `~/.pi/agent/agents/<name>.md`（自动展平 `agents/<name>/agent.md` 为 `<name>.md`）
+
+pi 的 agent 格式是扁平的 `.md` 文件（YAML frontmatter + 系统提示词），而本仓库的 agent 使用 `agent-name/agent.md` 子目录结构。安装脚本会自动处理这种映射。
 
 ## 卸载
 
