@@ -7,32 +7,39 @@ description: Web search, content extraction, and website crawling via Tavily API
 
 Real-time web search and content extraction via [Tavily API](https://tavily.com). Uses a multi-key round-robin pool with automatic exhaustion recovery (keys reset monthly).
 
-## Quick Start
+## 如何调用
 
-All commands live in `scripts/tavily.py`. The script reads `TAVILY_API_KEYS` from your environment (already configured globally).
+`tavily` 已安装在 `~/.local/bin/tavily`，PATH 已包含该目录。这是一个 Python wrapper，会自动从 `~/.shell/tavily.sh` 读取 `TAVILY_API_KEYS`，因此在**任意 shell 环境**（交互/非交互、bash/zsh）中都可以直接使用。
+
+### ✅ 正确写法
 
 ```bash
-# Web search
-python scripts/tavily.py search "your query"
+# 直接用 tavily 命令，一步到位
+tavily search "your query"
 
-# URL content extraction
-python scripts/tavily.py extract "https://example.com"
+# 如果 tavily 不在 PATH 中（极端情况），用绝对路径
+python3 ~/.local/bin/tavily search "your query"
+```
 
-# Website crawling
-python scripts/tavily.py crawl "https://docs.example.com"
+### ❌ 错误写法
 
-# Key pool status
-python scripts/tavily.py status
+```bash
+# ❌ 用 python 而非 python3（非交互式 bash 没有 alias，python 命令不存在）
+python scripts/tavily.py search "query"
+
+# ❌ 用相对路径（AI 执行时 cwd 不一定是 skill 目录）
+python3 scripts/tavily.py search "query"
+
+# ❌ 先 source 再运行（多余，wrapper 已自动处理）
+source ~/.shell/tavily.sh && python3 ~/.agents/skills/tavily-web-search/scripts/tavily.py search "query"
 ```
 
 ## Commands
 
 ### `search` — Web Search
 
-Search the web for information. This is the most-used command.
-
 ```bash
-python scripts/tavily.py search <query> [options]
+tavily search <query> [options]
 ```
 
 | Option | Default | Description |
@@ -52,10 +59,10 @@ python scripts/tavily.py search <query> [options]
 
 **Examples:**
 ```bash
-python scripts/tavily.py search "latest AI research 2026"
-python scripts/tavily.py search "Python 3.13 release" --topic news --time-range month
-python scripts/tavily.py search "LLM safety" --depth advanced --max-results 15
-python scripts/tavily.py search "React hooks" --include-domains "react.dev" --max-results 5
+tavily search "latest AI research 2026"
+tavily search "Python 3.13 release" --topic news --time-range month
+tavily search "LLM safety" --depth advanced --max-results 15
+tavily search "React hooks" --include-domains "react.dev" --max-results 5
 ```
 
 ### `extract` — URL Content Extraction
@@ -63,13 +70,13 @@ python scripts/tavily.py search "React hooks" --include-domains "react.dev" --ma
 Extract clean, readable content from web pages. Removes ads, navigation, clutter.
 
 ```bash
-python scripts/tavily.py extract <url1> [url2...] [--depth basic|advanced]
+tavily extract <url1> [url2...] [--depth basic|advanced]
 ```
 
 **Examples:**
 ```bash
-python scripts/tavily.py extract "https://example.com/article"
-python scripts/tavily.py extract "https://url1.com" "https://url2.com" --depth advanced
+tavily extract "https://example.com/article"
+tavily extract "https://url1.com" "https://url2.com" --depth advanced
 ```
 
 ### `crawl` — Website Crawling
@@ -77,7 +84,7 @@ python scripts/tavily.py extract "https://url1.com" "https://url2.com" --depth a
 Crawl a website starting from a URL, following links recursively.
 
 ```bash
-python scripts/tavily.py crawl <url> [options]
+tavily crawl <url> [options]
 ```
 
 | Option | Default | Description |
@@ -89,7 +96,7 @@ python scripts/tavily.py crawl <url> [options]
 
 **Example:**
 ```bash
-python scripts/tavily.py crawl "https://docs.python.org" --max-depth 2 --limit 30
+tavily crawl "https://docs.python.org" --max-depth 2 --limit 30
 ```
 
 ### `map` — Site Structure
@@ -97,13 +104,13 @@ python scripts/tavily.py crawl "https://docs.python.org" --max-depth 2 --limit 3
 Map a website's structure (URLs only, no content).
 
 ```bash
-python scripts/tavily.py map <url> [--max-depth N] [--max-breadth N] [--limit N]
+tavily map <url> [--max-depth N] [--max-breadth N] [--limit N]
 ```
 
 ### `status` — Key Pool Health
 
 ```bash
-python scripts/tavily.py status
+tavily status
 ```
 
 Shows total/available keys, per-key usage stats, and exhaustion state.

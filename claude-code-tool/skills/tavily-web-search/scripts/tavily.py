@@ -19,7 +19,11 @@ import os, sys, json, time, logging, argparse
 from pathlib import Path
 from typing import Any
 
-import httpx
+try:
+    import httpx
+except ImportError:
+    print("错误: 缺少 httpx 依赖。请运行: pip3 install httpx", file=sys.stderr)
+    sys.exit(1)
 
 logging.basicConfig(
     level=logging.WARNING,

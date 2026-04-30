@@ -1,6 +1,6 @@
 ---
 name: batch-tracer
-description: 批量代码分析调度器。对指定目录下的所有源代码文件执行完整的三阶段分析链路：code-trace（调用链路分析）→ issue-trace（问题验证）→ review-tracer（审查质量评估）。支持 --parallel n 参数设置并行度（默认 3），同一文件内三个阶段串行执行。所有报告保存到项目根目录的 .claude/tracers/ 目录，并生成汇总统计报告和修复计划。当用户说"批量分析"、"batch-tracer"、"全量分析"、"扫描代码"、"分析整个目录"或需要对整个代码目录进行深度分析时使用此 skill。
+description: 批量代码分析调度器。对指定目录下的所有源代码文件执行完整的三阶段分析链路：code-trace（调用链路分析）→ issue-trace（问题验证）→ review-tracer（审查质量评估）。支持 --parallel n 参数设置并行度（默认 3），同一文件内三个阶段串行执行。所有报告保存到项目根目录的 .tracers/ 目录，并生成汇总统计报告和修复计划。当用户说"批量分析"、"batch-tracer"、"全量分析"、"扫描代码"、"分析整个目录"或需要对整个代码目录进行深度分析时使用此 skill。
 ---
 
 # Batch Tracer - 批量代码分析调度器
@@ -74,13 +74,13 @@ AI 生成批次名称（简短描述分析内容）
      - `backend/app/services/` → `service-layer-audit`
 3. 创建批次目录结构：
    ```
-   .claude/tracers/
+   .tracers/
    └── batch-{timestamp}-{name}/
        ├── files/              # 各文件分析报告（子目录）
        ├── batch-tracer.md     # 汇总报告
        └── fix-plan.md         # 修复计划
    ```
-4. 如果 `.claude/tracers/` 目录不存在，先创建
+4. 如果 `.tracers/` 目录不存在，先创建
 
 ### 第三步：并行启动文件分析任务
 
@@ -283,7 +283,7 @@ Code-trace 报告：{code_trace_report_path}
 ### 报告目录结构
 
 ```
-.claude/tracers/
+.tracers/
 └── batch-{timestamp}-{name}/
     ├── batch-tracer.md           # 汇总报告
     ├── fix-plan.md               # 修复计划
@@ -338,13 +338,13 @@ Code-trace 报告：{code_trace_report_path}
 ```
 批量分析完成！
 
-批次目录：.claude/tracers/batch-{timestamp}-{name}/
+批次目录：.tracers/batch-{timestamp}-{name}/
 分析文件：{N} 个
 成功完成：{N} 个
 失败：{N} 个
 
-汇总报告：.claude/tracers/batch-{timestamp}-{name}/batch-tracer.md
-修复计划：.claude/tracers/batch-{timestamp}-{name}/fix-plan.md
+汇总报告：.tracers/batch-{timestamp}-{name}/batch-tracer.md
+修复计划：.tracers/batch-{timestamp}-{name}/fix-plan.md
 
 问题统计：
 - 严重问题（8-10分）：{N} 个
