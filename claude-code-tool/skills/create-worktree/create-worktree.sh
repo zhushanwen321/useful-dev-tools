@@ -45,9 +45,16 @@ if git -C .bare rev-parse --verify "$BRANCH_NAME" >/dev/null 2>&1; then
     echo "分支 '$BRANCH_NAME' 已存在，直接检出..."
     git -C .bare worktree add "$WORKSPACE_ROOT/$DIR_NAME" "$BRANCH_NAME"
 else
-    BASE_REF="$BASE_BRANCH"
+    # 关键：始终优先使用 origin/<base-branch>，确保基于 fetch 后的最新远程分支
+    # 本地分支 ref 在 bare repo 中可能是陈旧的，fetch 只更新 origin/* refs
+    BASE_REF="origin/$BASE_BRANCH"
     if ! git -C .bare rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
-        BASE_REF="origin/$BASE_BRANCH"
+        # fallback: 尝试本地分支（可能远程名不是 origin 或分支名不同）
+        BASE_REF="$BASE_BRANCH"
+        if ! git -C .bare rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+            echo "Error: 找不到基础分支 '$BASE_BRANCH'（本地和远程均不存在）"
+            exit 1
+        fi
     fi
     echo "创建分支 '$BRANCH_NAME' (基于 $BASE_REF)..."
     git -C .bare worktree add "$WORKSPACE_ROOT/$DIR_NAME" -b "$BRANCH_NAME" "$BASE_REF"
