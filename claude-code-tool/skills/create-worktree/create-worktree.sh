@@ -62,6 +62,30 @@ fi
 
 WORKTREE_PATH="$WORKSPACE_ROOT/$DIR_NAME"
 
+# 链接 workspace 根的共享 dev 配置到新 worktree
+link_shared_configs() {
+    local wt="$1"
+    local ws="$2"
+    local linked=false
+
+    # backend/.env -> workspace 根 .env
+    if [[ -f "$ws/.env" ]] && [[ -d "$wt/backend" ]]; then
+        local env_target="$wt/backend/.env"
+        if [[ -L "$env_target" ]]; then
+            echo "backend/.env 已是符号链接，跳过"
+        elif [[ -f "$env_target" ]]; then
+            echo "警告: backend/.env 已存在（非符号链接），跳过。手动删除后重试: rm $env_target"
+        else
+            ln -s ../../.env "$env_target"
+            echo "已链接 backend/.env -> ../../.env (workspace 共享配置)"
+            linked=true
+        fi
+    fi
+
+    if [[ "$linked" == true ]]; then echo "共享配置链接完成"; fi
+}
+link_shared_configs "$WORKTREE_PATH" "$WORKSPACE_ROOT"
+
 # 从 main/master worktree 复制 .claude 本地配置
 for main_wt in main master; do
     if [[ -f "$WORKSPACE_ROOT/$main_wt/.claude/settings.local.json" ]] && [[ -d "$WORKTREE_PATH/.claude" ]]; then

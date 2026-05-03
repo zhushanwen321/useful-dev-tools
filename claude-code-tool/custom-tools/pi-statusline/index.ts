@@ -27,6 +27,7 @@ import { readCache, triggerUpdate, trackSpeed, type SpeedData } from "./cache.js
 const SEP = "│";
 const DOT = "·";
 const WIDE_THRESHOLD = 100; // 终端宽度 ≥ 100 才显示进度条
+const RUN_UPDATE_MS = 5000;   // run 时间每 5s 才刷新一次，避免秒级闪烁
 
 // ── ANSI 辅助 ──────────────────────────────────────────
 // 进度条需要背景色，theme 不提供，用原始 ANSI
@@ -63,6 +64,15 @@ interface State {
 	lastLlmTime: number;
 	assistantStart: number;
 	speed: SpeedData;
+	lastRunUpdate: number;  // 上次刷新 run 时间的时间戳
+	isAgentBusy: boolean;    // AI 是否正在处理中
+	thinkingLevel: string;   // 当前 thinking level
+	// 缓存汇总（只在 message_end 时更新，避免 model/thinking 切换时重扫 branch）
+	totalInp: number;
+	totalOut: number;
+	totalCost: number;
+	usedPct: number;
+	loadPct: number;
 }
 
 // ── 扩展入口 ───────────────────────────────────────────
@@ -73,6 +83,14 @@ export default function (pi: ExtensionAPI) {
 		lastLlmTime: 0,
 		assistantStart: 0,
 		speed: { current: 0, day: 0, d7: 0, d30: 0 },
+		lastRunUpdate: 0,
+		isAgentBusy: false,
+		thinkingLevel: "",
+		totalInp: 0,
+		totalOut: 0,
+		totalCost: 0,
+		usedPct: 0,
+		loadPct: 0,
 	};
 
 	let tui: { requestRender(): void } | null = null;
@@ -82,6 +100,10 @@ export default function (pi: ExtensionAPI) {
 		state.sessionStart = Date.now();
 		state.lastLlmTime = 0;
 		state.speed = { current: 0, day: 0, d7: 0, d30: 0 };
+		state.isAgentBusy = false;
+		state.thinkingLevel = pi.getThinkingLevel();
+		// 首次汇总 token/cost
+		refreshTotals(state, ctx);
 
 		ctx.ui.setFooter((t, theme, footerData) => {
 			tui = t;
@@ -107,27 +129,81 @@ export default function (pi: ExtensionAPI) {
 	pi.on("message_start", async (event) => {
 		if (event.message.role === "assistant") {
 			state.assistantStart = Date.now();
+			state.isAgentBusy = true;
 		}
 	});
 
-	// ── message_end: 计算 token 速度，刷新缓存 ──
+	// ── message_end: 计算 token 速度，刷新缓存，更新汇总 ──
 	pi.on("message_end", async (event, ctx) => {
 		if (event.message.role === "assistant") {
 			const msg = event.message as AssistantMessage;
 			const dur = state.assistantStart ? Date.now() - state.assistantStart : 0;
 			state.lastLlmTime = Date.now();
 			state.speed = trackSpeed(msg.usage.output, dur, ctx.model?.id ?? "");
+			// 增量更新汇总（避免全量扫描 session）
+			state.totalInp += msg.usage.input;
+			state.totalOut += msg.usage.output;
+			state.totalCost += msg.usage.cost.total;
+			refreshContextUsage(state, ctx);
 			tui?.requestRender();
 			triggerUpdate();
 		}
 	});
 
-	// ── turn_end / model_select: 刷新渲染 ──
-	pi.on("turn_end", async () => tui?.requestRender());
-	pi.on("model_select", async () => tui?.requestRender());
+	// ── turn_end / agent_end: AI 结束/空闲时才刷新 run 时间 ──
+	pi.on("turn_end", async () => {
+		state.isAgentBusy = false;
+		state.lastRunUpdate = Date.now();
+		tui?.requestRender();
+	});
+	pi.on("agent_end", async () => {
+		state.isAgentBusy = false;
+		state.lastRunUpdate = Date.now();
+		tui?.requestRender();
+	});
+	pi.on("model_select", async () => {
+		state.thinkingLevel = pi.getThinkingLevel();
+		tui?.requestRender();
+	});
+
+	// ── thinking_level_select: 记录 thinking level ──
+	pi.on("thinking_level_select", async (event) => {
+		state.thinkingLevel = event.level;
+		// 如果 AI 不忙，刷新 footer；否则等空闲时再刷新
+		if (!state.isAgentBusy) tui?.requestRender();
+	});
 }
 
 // ── 渲染 ───────────────────────────────────────────────
+
+/** 全量扫描 session 汇总 token/cost（仅 session_start 时调用） */
+function refreshTotals(st: State, ctx: any): void {
+	let inp = 0, out = 0, cost = 0;
+	for (const e of ctx.sessionManager.getBranch()) {
+		if (e.type === "message" && e.message.role === "assistant") {
+			const u = (e.message as AssistantMessage).usage;
+			inp += u.input;
+			out += u.output;
+			cost += u.cost.total;
+		}
+	}
+	st.totalInp = inp;
+	st.totalOut = out;
+	st.totalCost = cost;
+	refreshContextUsage(st, ctx);
+}
+
+/** 更新上下文使用率缓存 */
+function refreshContextUsage(st: State, ctx: any): void {
+	const model = ctx.model;
+	const contextWindow = model?.contextWindow || 128_000;
+	const usage = ctx.getContextUsage();
+	const usedPct = usage
+		? Math.min(Math.round((usage.tokens / contextWindow) * 100), 100)
+		: 0;
+	st.usedPct = usedPct;
+	st.loadPct = Math.min(Math.round((usedPct * 100) / 84), 100);
+}
 
 function buildLines(
 	ctx: any,
@@ -138,28 +214,16 @@ function buildLines(
 ): string[] {
 	const cache = readCache();
 
-	// ── 1. 从 session 收集 token / cost 数据 ──
-	let inp = 0,
-		out = 0,
-		cost = 0;
-	for (const e of ctx.sessionManager.getBranch()) {
-		if (e.type === "message" && e.message.role === "assistant") {
-			const u = (e.message as AssistantMessage).usage;
-			inp += u.input;
-			out += u.output;
-			cost += u.cost.total;
-		}
-	}
+	// ── 1. 使用缓存汇总数据（在 message_end/session_start 时更新） ──
+	const inp = st.totalInp;
+	const out = st.totalOut;
+	const cost = st.totalCost;
 
-	// ── 2. 计算上下文使用率 ──
+	// ── 2. 使用缓存的上下文使用率 + thinking level ──
 	const model = ctx.model;
 	const modelName = model?.name || model?.id || "unknown";
-	const contextWindow = model?.contextWindow || 128_000;
-	const usage = ctx.getContextUsage();
-	const usedPct = usage
-		? Math.min(Math.round((usage.tokens / contextWindow) * 100), 100)
-		: 0;
-	const loadPct = Math.min(Math.round((usedPct * 100) / 84), 100); // 84 = 100 - 16 buffer
+	const usedPct = st.usedPct;
+	const loadPct = st.loadPct;
 
 	// ── 3. 其他信息 ──
 	const branch = fd.getGitBranch();
@@ -184,7 +248,7 @@ function buildLines(
 	const lines: string[] = [];
 
 	// ═══════════════════════════════════════════════════
-	// Line 1: 身份 — 目录 · 分支 · 模型
+	// Line 1: 身份 — 目录 · 分支 · 模型 + thinking level
 	// ═══════════════════════════════════════════════════
 	const idParts: string[] = [];
 	if (dir) idParts.push(a(dir));
@@ -192,7 +256,11 @@ function buildLines(
 	if (usedPct > 80) idParts.push(w("⚠ ctx"));
 
 	let line1 = idParts.join(` ${DOT} `);
-	if (modelName) line1 += ` ${SEP} ${a(modelName)}`;
+	if (modelName) {
+		const namePart = a(modelName);
+		const tlPart = st.thinkingLevel ? m(`[${st.thinkingLevel}]`) : "";
+		line1 += ` ${SEP} ${namePart} ${tlPart}`;
+	}
 	if (line1) lines.push(line1);
 
 	// ═══════════════════════════════════════════════════
@@ -267,8 +335,15 @@ function buildLines(
 			`${d("from")} ${g(`${from.getHours()}:${String(from.getMinutes()).padStart(2, "0")}`)}`,
 		);
 	}
+	// run 时间：AI 繁忙或距离上次更新时间 < RUN_UPDATE_MS 时不刷新（避免秒级闪烁）
 	const runMs = st.sessionStart ? Date.now() - st.sessionStart : 0;
-	if (runMs > 0) tp.push(`${d("run")} ${g(fmtDuration(runMs))}`);
+	const shouldRefreshRun = !st.isAgentBusy &&
+		(st.lastRunUpdate === 0 || Date.now() - st.lastRunUpdate >= RUN_UPDATE_MS);
+	if (shouldRefreshRun) {
+		st.lastRunUpdate = Date.now();
+	}
+	const displayRunMs = st.lastRunUpdate ? st.lastRunUpdate - st.sessionStart : runMs;
+	if (displayRunMs > 0) tp.push(`${d("run")} ${g(fmtDuration(displayRunMs))}`);
 	if (st.lastLlmTime) {
 		const ago = Math.floor((Date.now() - st.lastLlmTime) / 1000);
 		tp.push(

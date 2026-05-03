@@ -23,6 +23,7 @@ MODULES=(
   "knowledge-engine|知识引擎|settings+deps|high|bun,jq"
   "pi-skills|pi Skills (→ ~/.pi/agent/skills)|symlink-pi-skill|low|"
   "pi-agents|pi Agents (→ ~/.pi/agent/agents)|symlink-pi-agent|low|"
+  "pi-statusline|pi 状态栏 Extension (→ ~/.pi/agent/extensions/statusline)|symlink-pi-statusline|low|"
 )
 
 # 解析模块字段
@@ -73,8 +74,8 @@ PI_HOME="$HOME/.pi/agent"
 
 # 各平台支持的模块（空数组 = 支持所有模块）
 AGENTS_ONLY_MODULES=("skills")
-# pi 仅支持 skills 和 agents（不含 Claude Code 专用模块）
-PI_ONLY_MODULES=("pi-skills" "pi-agents")
+# pi 仅支持 skills、agents 和 statusline（不含 Claude Code 专用模块）
+PI_ONLY_MODULES=("pi-skills" "pi-agents" "pi-statusline")
 
 # ======================== 变更计划机制 ========================
 # PLAN 数组格式: "type|arg1|arg2|arg3"
@@ -319,6 +320,36 @@ plan_install_for_home() {
         done
         ;;
 
+      symlink-pi-statusline)
+        # pi statusline: custom-tools/pi-statusline/* → ~/.pi/agent/extensions/statusline/*
+        local SRC_DIR="$CLAUDE_DIR/custom-tools/pi-statusline"
+        if [ ! -d "$SRC_DIR" ]; then continue; fi
+
+        local CHILD
+        for CHILD in "$SRC_DIR"/*; do
+          [ -f "$CHILD" ] || continue
+          local CHILD_NAME TARGET
+          CHILD_NAME="$(basename "$CHILD")"
+          TARGET="$PI_HOME/extensions/statusline/$CHILD_NAME"
+
+          if [ -L "$TARGET" ]; then
+            if is_our_symlink "$TARGET" "$CHILD"; then
+              continue
+            else
+              plan_symlink "$TARGET" "$CHILD" "pi/extensions/statusline/$CHILD_NAME (替换外部链接)"
+            fi
+          elif [ -e "$TARGET" ]; then
+            local TIMESTAMP BACKUP
+            TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+            BACKUP="${BACKUP_DIR}/statusline_${CHILD_NAME}_${TIMESTAMP}"
+            plan_backup "$TARGET" "$BACKUP"
+            plan_symlink "$TARGET" "$CHILD" "pi/extensions/statusline/$CHILD_NAME"
+          else
+            plan_symlink "$TARGET" "$CHILD" "pi/extensions/statusline/$CHILD_NAME"
+          fi
+        done
+        ;;
+
       file)
         local SRC TARGET
         case "$NAME" in
@@ -506,7 +537,7 @@ is_module_applicable() {
 
   # Claude Code / OpenCode 不支持 pi 专用模块
   case "$MODULE_NAME" in
-    pi-skills|pi-agents) return 1 ;;
+    pi-skills|pi-agents|pi-statusline) return 1 ;;
   esac
 
   return 0
@@ -847,6 +878,34 @@ uninstall_for_pi() {
           fi
         fi
       done
+    fi
+
+    # 卸载 pi statusline: ~/.pi/agent/extensions/statusline/* → ~/custom-tools/pi-statusline/*
+    local PI_SL_DIR="$PI_HOME/extensions/statusline"
+    if [ -d "$PI_SL_DIR" ]; then
+      local CHILD
+      for CHILD in "$PI_SL_DIR"/*; do
+        [ -e "$CHILD" ] || continue
+        [ ! -L "$CHILD" ] && continue
+        local CHILD_NAME
+        CHILD_NAME="$(basename "$CHILD")"
+        local CHILD_SRC="$SRC_DIR/custom-tools/pi-statusline/$CHILD_NAME"
+        if is_our_symlink "$CHILD" "$CHILD_SRC"; then
+          echo "移除 pi statusline: $CHILD"
+          rm "$CHILD"
+          ((UNINSTALLED_COUNT++)) || true
+        elif [ ! -e "$CHILD" ]; then
+          local LINK_TARGET
+          LINK_TARGET="$(readlink "$CHILD")"
+          if [[ "$LINK_TARGET" == *"$SRC_DIR"* ]]; then
+            echo "移除 pi statusline 断链: $CHILD -> $LINK_TARGET"
+            rm "$CHILD"
+            ((UNINSTALLED_COUNT++)) || true
+          fi
+        fi
+      done
+      # 清理空目录
+      [ -d "$PI_SL_DIR" ] && rmdir "$PI_SL_DIR" 2>/dev/null || true
     fi
 
     if [ "$UNINSTALLED_COUNT" -eq 0 ]; then
