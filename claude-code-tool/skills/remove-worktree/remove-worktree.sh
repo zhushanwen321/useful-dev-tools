@@ -120,11 +120,11 @@ if [[ "$SKIP_SYNC" != "true" ]]; then
         cd "$WORKSPACE_ROOT/$_wt_name"
         git fetch origin "$MAIN_BRANCH" 2>&1 | tail -1
 
-        if git rebase "origin/$MAIN_BRANCH"; then
+        if git merge --no-ff "$MAIN_BRANCH"; then
             echo "  OK: $_wt_name 已同步到最新 $MAIN_BRANCH"
             SYNCED=$((SYNCED + 1))
         else
-            echo "  CONFLICT: $_wt_name rebase 冲突:"
+            echo "  CONFLICT: $_wt_name merge 冲突:"
             git diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/    - /'
             CONFLICTS=$((CONFLICTS + 1))
             CONFLICT_WTS="${CONFLICT_WTS:+$CONFLICT_WTS }$_wt_name"
@@ -156,8 +156,8 @@ if [[ "$SKIP_SYNC" != "true" ]]; then
         done
         echo ""
         echo "  冲突处理: 在冲突 worktree 中执行 git diff --name-only --diff-filter=U 查看冲突文件"
-        echo "  处理完成后: git add . && git rebase --continue"
-        echo "  放弃同步: git rebase --abort"
+        echo "  处理完成后: git add . && git commit"
+        echo "  放弃同步: git merge --abort"
     else
         echo "  冲突: 0"
     fi

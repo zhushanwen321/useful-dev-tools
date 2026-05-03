@@ -249,13 +249,14 @@ export function trackSpeed(
 	try {
 		if (existsSync(filePath)) {
 			const raw = JSON.parse(readFileSync(filePath, "utf-8"));
-			// 兼容旧格式 (number[]) → 新格式 ([number, number][])  
 			for (const [date, entries] of Object.entries(raw)) {
-				if (entries.length > 0 && typeof entries[0] === "number") {
-					// 旧格式只有速度值，无法还原 tokens/duration，丢弃
-					continue;
-			}
-				records[date] = entries as Record[];
+				// 跳过旧格式（number[]）或混合格式
+				if (!Array.isArray(entries)) continue;
+				if (entries.length > 0 && !Array.isArray(entries[0])) continue;
+				// 过滤掉同日期内混入的旧格式纯数字
+				records[date] = entries.filter(
+					(e): e is Record => Array.isArray(e) && e.length >= 2,
+				);
 			}
 		}
 	} catch {}
@@ -280,9 +281,10 @@ export function trackSpeed(
 	const avgSpeed = (entries: Record[]): number => {
 		let totalTokens = 0;
 		let totalDuration = 0;
-		for (const [tokens, dur] of entries) {
-			totalTokens += tokens;
-			totalDuration += dur;
+		for (const entry of entries) {
+			if (!Array.isArray(entry) || entry.length < 2) continue;
+			totalTokens += entry[0];
+			totalDuration += entry[1];
 		}
 		return totalDuration > 0
 			? Math.round((totalTokens / totalDuration) * 1000)

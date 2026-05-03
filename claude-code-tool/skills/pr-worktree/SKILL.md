@@ -47,7 +47,7 @@ bash ~/.claude/skills/pr-worktree/pr-worktree.sh --base develop
 
 1. 检查当前分支和 gh CLI 状态
 2. 检查是否有未提交变更（有则报错退出）
-3. `git push -u origin <branch>`，失败时自动 `pull --rebase` 后重试
+3. `git push -u origin <branch>`，失败时自动 `git pull --no-ff` 后重试
 4. 查找已有 PR：`gh pr list --head <branch>`
 5. **已有 PR** → 更新标题和正文（`gh pr edit`）
 6. **无 PR** → 创建新 PR（`gh pr create`）
@@ -94,7 +94,7 @@ PR 已更新!
 | `Warning: 有未提交的变更` | git add 后未 commit | 先提交变更 |
 | `Error: gh CLI 未安装` | 未安装 GitHub CLI | `brew install gh` |
 | `Error: gh CLI 未登录` | gh 未认证 | `gh auth login` |
-| `rebase 失败` | push 被拒且 rebase 有冲突 | 手动解决冲突后重试 |
+| `pull 失败` | push 被拒且 pull 有冲突 | 手动解决冲突后重试 |
 
 ## AI 操作步骤
 

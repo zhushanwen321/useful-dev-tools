@@ -50,7 +50,7 @@ bash ~/.agents/skills/remove-worktree/remove-worktree.sh feat/done-feature --ski
 2. `git branch --merged origin/main` 检查分支是否已合并
 3. **未合并 → 拒绝删除，显示未合并 commits**，提示使用 `--force`
 4. 检查未提交变更（有变更 → 拒绝删除）
-5. 同步其他 worktree：`git fetch origin main && git rebase origin/main`
+5. 同步其他 worktree：`git fetch origin main && git merge --no-ff origin/main`
 6. 冲突时不 abort，保留冲突状态供 AI 处理
 7. 删除目标 worktree 和本地分支
 
@@ -139,7 +139,7 @@ Remove worktree 完成!
    bash ~/.agents/skills/remove-worktree/remove-worktree.sh <branch-name> [--force] [--skip-sync]
    ```
 5. 确认输出包含 `"Remove worktree 完成!"`
-6. 如果有 rebase 冲突，处理冲突：
+6. 如果有 merge 冲突，处理冲突：
    - 冲突文件列表：`git diff --name-only --diff-filter=U`
-   - 解决后：`git add . && git rebase --continue`
-   - 放弃同步：`git rebase --abort`
+   - 解决后：`git add . && git commit`
+   - 放弃同步：`git merge --abort`

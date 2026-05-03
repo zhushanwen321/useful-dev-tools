@@ -139,7 +139,14 @@ export default function (pi: ExtensionAPI) {
 			const msg = event.message as AssistantMessage;
 			const dur = state.assistantStart ? Date.now() - state.assistantStart : 0;
 			state.lastLlmTime = Date.now();
-			state.speed = trackSpeed(msg.usage.output, dur, ctx.model?.id ?? "");
+			// session 重放时所有消息瞬间回放，duration≈0，导致虚假极速
+			// 输出>50tokens 但 duration<100ms → 跳过此条的速度记录
+			const isBogusReplay = msg.usage.output > 50 && dur < 100;
+			if (!isBogusReplay) {
+				state.speed = trackSpeed(msg.usage.output, dur, ctx.model?.id ?? "");
+			} else {
+				state.speed = { current: 0, day: 0, d7: 0, d30: 0 };
+			}
 			// 增量更新汇总（避免全量扫描 session）
 			state.totalInp += msg.usage.input;
 			state.totalOut += msg.usage.output;

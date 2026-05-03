@@ -1,5 +1,5 @@
 #!/bin/bash
-# 合并 PR 并发布：CI 检查 → squash-merge → 版本升级 → tag → push → release
+# 合并 PR 并发布：CI 检查 → merge --no-ff → 版本升级 → tag → push → release
 # Usage: merge-worktree-release.sh <pr-number-or-branch> [--version patch|minor|major] [--skip-ci] [--skip-release]
 # Example: merge-worktree-release.sh 42
 #          merge-worktree-release.sh feat/new-feature --version minor
@@ -28,6 +28,32 @@ done
 command -v gh >/dev/null 2>&1 || { echo "Error: gh CLI 未安装。"; exit 1; }
 gh auth status >/dev/null 2>&1 || { echo "Error: gh CLI 未登录。"; exit 1; }
 
+# --- 读取 CLAUDE.md 发布配置 ---
+read_release_config() {
+    local claude_md=""
+    # 优先从 main worktree 读取
+    for wt_name in main master; do
+        if [[ -f "$WORKSPACE_ROOT/$wt_name/CLAUDE.md" ]]; then
+            claude_md="$WORKSPACE_ROOT/$wt_name/CLAUDE.md"
+            break
+        fi
+    done
+    # 回退到当前目录
+    [[ -z "$claude_md" ]] && claude_md="$(pwd)/CLAUDE.md"
+    [[ ! -f "$claude_md" ]] && return
+
+    # 检测 CI 触发模式
+    if grep -q "release:.*published" "$claude_md" 2>/dev/null || grep -q "创建 GitHub Release.*触发.*CI" "$claude_md" 2>/dev/null; then
+        echo "[发布配置] 检测到 release.yml 使用 'on: release: types: [published]'，tag push 不会触发 npm 发布，必须创建 GitHub Release"
+    elif grep -q "push:.*tags" "$claude_md" 2>/dev/null; then
+        echo "[发布配置] 检测到 release.yml 使用 'on: push: tags'，tag push 即可触发 CI"
+    fi
+
+    # 检测 npm 发布包名
+    local pkg_name=$(grep -oP 'npm（\K[^）]+' "$claude_md" 2>/dev/null || echo "")
+    [[ -n "$pkg_name" ]] && echo "[发布配置] npm 包名: $pkg_name"
+}
+
 WORKSPACE_ROOT=$(find_workspace_root "$(pwd)") || {
     echo "Error: 未找到 workspace。"; exit 1;
 }
@@ -46,6 +72,9 @@ else
     }
 fi
 echo "PR: #$PR_NUMBER"
+
+# --- 读取发布配置 ---
+read_release_config
 
 # --- 步骤 1: 检查 CI ---
 echo ""
@@ -69,9 +98,9 @@ else
     echo "CI 检查通过。"
 fi
 
-# --- 步骤 2: Squash-Merge PR ---
+# --- 步骤 2: Merge --no-ff PR ---
 echo ""
-echo "=== 步骤 2: Squash-Merge PR #$PR_NUMBER ==="
+echo "=== 步骤 2: Merge --no-ff PR #$PR_NUMBER ==="
 
 # 获取 PR 信息用于生成 release notes
 PR_TITLE=$(gh pr view "$PR_NUMBER" --json title --jq '.title')
@@ -81,8 +110,8 @@ PR_BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
 echo "标题: $PR_TITLE"
 echo "分支: $PR_BRANCH"
 
-gh pr merge "$PR_NUMBER" --squash --delete-branch 2>&1
-echo "PR 已合并。"
+gh pr merge "$PR_NUMBER" --no-ff --delete-branch 2>&1
+echo "PR 已合并（保留完整分支历史）。"
 
 # --- 步骤 3: 更新 main ---
 echo ""
