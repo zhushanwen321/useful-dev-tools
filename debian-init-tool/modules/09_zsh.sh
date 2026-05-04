@@ -15,6 +15,7 @@ select_zsh_all_in_one() {
         "git"              "Git 别名和补全"        "ON"
         "sudo"             "双击 ESC 添加 sudo"    "ON"
         "colored-man-pages" "彩色 man 页面"        "ON"
+        "z"                "目录快速跳转 (frecent)" "ON"
         "colorize"         "语法高亮 cat"          "OFF"
         "copypath"         "复制当前路径"           "OFF"
         "copyfile"         "复制文件内容"           "OFF"
@@ -36,7 +37,7 @@ select_zsh_all_in_one() {
     local result
     result=$(safe_whiptail --title "Zsh 配置" --checklist \
         "选择主题(一个)、插件和选项 (空格切换，回车确认):" \
-        26 65 16 "${items[@]}")
+        28 65 17 "${items[@]}")
 
     # 移除引号（whiptail checklist 返回选中项时带引号）
     echo "$result" | tr -d '"'
