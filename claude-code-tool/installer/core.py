@@ -1,5 +1,6 @@
 """Claude Code Tool Installer - main installer logic."""
 
+import json
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -10,7 +11,7 @@ from .modules import (
     Action, SymlinkAction, BackupAction, MessageAction,
     UndoStack, create_all_modules,
 )
-from .utils import backup_file, log_action
+from .utils import backup_file, log_action, load_json, save_json
 
 
 class Installer:
@@ -157,20 +158,27 @@ class Installer:
 
     def _build_plan(self, targets: list[Path],
                     selected: dict[str, Module]) -> dict:
-        """Build plan, returning structured data for execution."""
+        """Build plan, returning structured data for execution.
+
+        Key change: per_target_per_module stores actions grouped by (target, module)
+        to prevent one module from executing another module's actions.
+        """
         per_target: dict[Path, list[Action]] = {}
+        per_target_per_module: dict[Path, dict[str, list[Action]]] = {}
         user_level: list[Action] = []
         all_actions: list[Action] = []
 
         # Per-target
         for target in targets:
             target_actions: list[Action] = []
+            per_target_per_module[target] = {}
             for mod in selected.values():
                 if isinstance(mod, UserLevelModule):
                     continue
                 if not mod.is_applicable(target):
                     continue
                 actions = mod.plan(target, self.script_dir)
+                per_target_per_module[target][mod.name] = actions
                 target_actions.extend(actions)
             per_target[target] = target_actions
             all_actions.extend(target_actions)
@@ -184,6 +192,7 @@ class Installer:
 
         return {
             "per_target": per_target,
+            "per_target_per_module": per_target_per_module,
             "user_level": user_level,
             "all_actions": all_actions,
             "selected": selected,
@@ -213,38 +222,42 @@ class Installer:
         undo_stack = UndoStack()
 
         try:
-            for target, actions in plan_data["per_target"].items():
-                if not actions:
+            for target in plan_data["per_target"]:
+                target_actions = plan_data["per_target"][target]
+                if not target_actions:
                     continue
                 rel = "~/" + str(target.relative_to(Path.home()))
                 print(f"\n--- 安装到 {rel} ---")
                 target.mkdir(parents=True, exist_ok=True)
                 backup_dir = target / "bak"
 
-                self._migrate_legacy(target)
+                self._migrate_legacy(target, undo_stack)
+
+                # Snapshot settings.json once before any SettingsModule touches it
+                settings_snapshot = self._snapshot_settings(target, backup_dir, undo_stack)
 
                 for mod in selected.values():
                     if isinstance(mod, UserLevelModule) or not mod.is_applicable(target):
                         continue
 
                     if isinstance(mod, SettingsModule):
-                        settings = target / "settings.json"
-                        had_settings = settings.exists()
-                        if had_settings:
-                            backup_file(settings, backup_dir)
                         mod.configure(target, self.script_dir)
-                        # Record undo for settings
-                        if had_settings:
-                            backups = sorted(backup_dir.glob("settings.json_*"), reverse=True)
-                            if backups:
-                                bak = backups[0]
-                                undo_stack.push(f"恢复 {rel}/settings.json",
-                                                lambda s=settings, b=bak: shutil.copy2(str(b), str(s)))
-                        else:
-                            undo_stack.push(f"删除 {rel}/settings.json",
-                                            lambda s=settings: s.unlink(missing_ok=True))
                     else:
-                        mod.execute(actions, backup_dir, undo_stack)
+                        # Use per-module actions, not the whole target's actions
+                        mod_actions = plan_data["per_target_per_module"].get(target, {}).get(mod.name, [])
+                        if mod_actions:
+                            mod.execute(mod_actions, backup_dir, undo_stack)
+
+                # Record settings undo once after all SettingsModules for this target
+                if settings_snapshot is not None:
+                    rel_snap = rel
+                    undo_stack.push(
+                        f"恢复 {rel_snap}/settings.json",
+                        lambda s=target / "settings.json", snap=settings_snapshot: (
+                            save_json(s, snap) if snap
+                            else s.unlink(missing_ok=True)
+                        ),
+                    )
 
             # User-level (once)
             user_actions = plan_data["user_level"]
@@ -264,7 +277,22 @@ class Installer:
                 print("\n没有需要回滚的操作。")
             raise
 
-        self._last_undo_stack = undo_stack
+    def _snapshot_settings(self, target: Path, backup_dir: Path,
+                           undo_stack: UndoStack) -> Optional[Optional[dict]]:
+        """Snapshot settings.json before any SettingsModule modifies it.
+
+        Returns:
+            None if no settings.json exists (new install) → inner None means "delete on undo"
+            dict of settings content if file exists → restore on undo
+        """
+        settings = target / "settings.json"
+        if settings.exists():
+            data = load_json(settings)
+            backup_file(settings, backup_dir)
+            # Return a deep copy to prevent later mutations
+            return json.loads(json.dumps(data))
+        else:
+            return None  # Signal: no file existed, undo = delete
 
     # ── Uninstall ────────────────────────────────────────────
 
@@ -290,7 +318,14 @@ class Installer:
             print("已取消。")
             return
 
-        user_level_done = False
+        # User-level uninstall: run once, outside per-target loop
+        for mod in self.modules:
+            if isinstance(mod, UserLevelModule):
+                if self.dry_run:
+                    ui.info(f"[dry-run] 将卸载 {mod.description}")
+                else:
+                    mod.uninstall_standalone()
+                break  # Only one UserLevelModule currently
 
         for key in keys:
             target = self.targets[key]
@@ -301,14 +336,7 @@ class Installer:
 
             for mod in self.modules:
                 if isinstance(mod, UserLevelModule):
-                    # User-level: only run once (for claude or "全部")
-                    if (not user_level_done and key == "claude") or choice == "5":
-                        if self.dry_run:
-                            ui.info(f"[dry-run] 将卸载 {mod.description}")
-                        else:
-                            mod.uninstall_standalone()
-                        user_level_done = True
-                    continue
+                    continue  # Already handled above
 
                 if not mod.is_applicable(target):
                     continue
@@ -317,14 +345,15 @@ class Installer:
                     ui.info(f"[dry-run] 将卸载 {mod.name}")
                 else:
                     mod.uninstall(target, self.script_dir)
-                    # SettingsModule.uninstall() already calls unconfigure()
 
         if not self.dry_run:
-            log_action(target, "UNINSTALL", "all")
+            for key in keys:
+                log_action(self.targets[key], "UNINSTALL", "all")
             print(f"\n{ui.green('卸载完成。')}")
+
     # ── Legacy migration ─────────────────────────────────────
 
-    def _migrate_legacy(self, target: Path) -> None:
+    def _migrate_legacy(self, target: Path, undo_stack: UndoStack) -> None:
         """Migrate old directory-level symlinks to new per-item symlinks."""
         from .utils import is_our_symlink
         migrated = 0
@@ -337,6 +366,17 @@ class Installer:
             if not source_dir.is_dir():
                 continue
             ui.info(f"迁移老安装: {item_name} (目录级 symlink)")
+
+            # Record undo: recreate the old directory-level symlink
+            old_resolved = str(old_target)
+            undo_stack.push(
+                f"恢复老安装 {item_name}",
+                lambda p=item_path, r=old_resolved: (
+                    shutil.rmtree(str(p)) if p.is_dir() else p.unlink(missing_ok=True),
+                    p.symlink_to(r),
+                )[-1],
+            )
+
             item_path.unlink()
             item_path.mkdir(parents=True, exist_ok=True)
             for child in sorted(source_dir.iterdir()):

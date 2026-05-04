@@ -51,6 +51,10 @@ class UndoStack:
     def count(self) -> int:
         return len(self._items)
 
+    def clear(self) -> None:
+        """Release all undo closures (call after successful execution)."""
+        self._items.clear()
+
 
 # ── Actions (planned changes) ────────────────────────────────
 
@@ -180,6 +184,14 @@ class Module(ABC):
             )
             if result.returncode == 0:
                 ui.success(f"{action.package} 安装完成")
+                # Note: pip install is not automatically rolled back.
+                # The package may be depended on by others, so we only log a hint.
+                if undo_stack:
+                    undo_stack.push(
+                        f"(不可自动回滚) pip uninstall {action.package}",
+                        lambda pkg=action.package: ui.warn(
+                            f"  ⚠ pip install {pkg} 不可自动回滚，请手动: pip uninstall {pkg}"),
+                    )
             else:
                 ui.error(f"{action.package} 安装失败")
                 raise RuntimeError(f"pip install {action.package} failed")
@@ -316,7 +328,7 @@ class SettingsModule(Module):
         ...
 
     @abstractmethod
-    def unconfigure(self, target_home: Path) -> None:
+    def unconfigure(self, target_home: Path, script_dir: Path = None) -> None:
         ...
 
     def execute(self, actions: list[Action], backup_dir: Path,
@@ -324,7 +336,7 @@ class SettingsModule(Module):
         pass  # Settings use configure(), not standard actions
 
     def uninstall(self, target_home: Path, script_dir: Path) -> None:
-        self.unconfigure(target_home)
+        self.unconfigure(target_home, script_dir)
 
 
 class StatuslineModule(SettingsModule):
@@ -353,7 +365,7 @@ class StatuslineModule(SettingsModule):
         ui.success("statusline 已配置")
         return True
 
-    def unconfigure(self, target_home: Path) -> None:
+    def unconfigure(self, target_home: Path, script_dir: Path = None) -> None:
         settings_path = target_home / "settings.json"
         if not settings_path.exists():
             return
@@ -400,7 +412,7 @@ class SkillInjectModule(SettingsModule):
         ui.success("Skill 注入 Hook 已配置")
         return True
 
-    def unconfigure(self, target_home: Path) -> None:
+    def unconfigure(self, target_home: Path, script_dir: Path = None) -> None:
         settings_path = target_home / "settings.json"
         if not settings_path.exists():
             return
@@ -420,6 +432,9 @@ class KnowledgeEngineModule(SettingsModule):
     description = "知识引擎"
     risk = "high"
 
+    # Marker file stores the engine cli path for precise uninstall
+    ENGINE_MARKER = ".engine_cli_path"
+
     def __init__(self):
         super().__init__()
         self.dep_tools = ["bun", "jq"]
@@ -437,7 +452,10 @@ class KnowledgeEngineModule(SettingsModule):
         ui.info("安装知识引擎依赖...")
         result = run_cmd(["bun", "install", "--frozen-lockfile"], cwd=str(engine_dir))
         if result.returncode != 0:
-            run_cmd(["bun", "install", "--no-save"], cwd=str(engine_dir))
+            result = run_cmd(["bun", "install", "--no-save"], cwd=str(engine_dir))
+            if result.returncode != 0:
+                ui.error("知识引擎依赖安装失败")
+                return False
 
         knowledge_dir = target_home / "knowledge"
         knowledge_dir.mkdir(parents=True, exist_ok=True)
@@ -479,6 +497,10 @@ class KnowledgeEngineModule(SettingsModule):
         save_json(settings_path, data)
         ui.success("知识引擎 hooks 已配置")
 
+        # Store cli path in marker for precise uninstall
+        marker_path = knowledge_dir / self.ENGINE_MARKER
+        marker_path.write_text(str(cli_abs))
+
         # Crontab
         self._setup_crontab(engine_dir)
 
@@ -493,44 +515,47 @@ class KnowledgeEngineModule(SettingsModule):
             existing = result.stdout if result.returncode == 0 else ""
             lines = [l for l in existing.splitlines() if marker not in l]
             lines.append(cron_entry)
-            subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True)
-            ui.success("crontab 已配置 (每天 23:00)")
+            crontab_result = subprocess.run(
+                ["crontab", "-"], input="\n".join(lines) + "\n", text=True)
+            if crontab_result.returncode == 0:
+                ui.success("crontab 已配置 (每天 23:00)")
+            else:
+                ui.warn(f"crontab 写入失败 (exit {crontab_result.returncode})")
         except Exception:
             ui.warn("crontab 配置失败")
 
-    def unconfigure(self, target_home: Path) -> None:
+    def unconfigure(self, target_home: Path, script_dir: Path = None) -> None:
         settings_path = target_home / "settings.json"
         if not settings_path.exists():
             return
 
-        # Try precise removal by command pattern
-        engine_dir = None
-        for candidate in self._find_engine_dirs():
-            engine_dir = candidate
-            break
+        # Read cli path from marker file for precise removal
+        cli_abs_str = self._read_engine_marker(target_home)
 
-        if engine_dir:
-            cli_path = engine_dir / "src" / "cli.ts"
-            if cli_path.exists():
-                cli_abs = cli_path.resolve()
-                cmds_to_remove = {
-                    f'bun "{cli_abs}" record',
-                    f'bun "{cli_abs}" process',
-                    f'bun "{cli_abs}" inject-index',
-                }
-                data = load_json(settings_path)
-                for hook_type in ("PostToolUse", "Stop", "SessionStart"):
-                    entries = data.get("hooks", {}).get(hook_type, [])
-                    cleaned = []
-                    for e in entries:
-                        hooks = e.get("hooks", [])
-                        hooks = [h for h in hooks if h.get("command") not in cmds_to_remove]
-                        if hooks:
-                            e["hooks"] = hooks
-                            cleaned.append(e)
-                    data.setdefault("hooks", {})[hook_type] = cleaned
-                save_json(settings_path, data)
-                ui.info("知识引擎 hooks 已精确移除")
+        if cli_abs_str:
+            cli_abs = Path(cli_abs_str)
+            cmds_to_remove = {
+                f'bun "{cli_abs}" record',
+                f'bun "{cli_abs}" process',
+                f'bun "{cli_abs}" inject-index',
+            }
+            data = load_json(settings_path)
+            for hook_type in ("PostToolUse", "Stop", "SessionStart"):
+                entries = data.get("hooks", {}).get(hook_type, [])
+                cleaned = []
+                for e in entries:
+                    hooks = e.get("hooks", [])
+                    hooks = [h for h in hooks if h.get("command") not in cmds_to_remove]
+                    if hooks:
+                        e["hooks"] = hooks
+                        cleaned.append(e)
+                data.setdefault("hooks", {})[hook_type] = cleaned
+            save_json(settings_path, data)
+            ui.info("知识引擎 hooks 已精确移除")
+
+            # Clean up marker
+            marker_path = target_home / "knowledge" / self.ENGINE_MARKER
+            marker_path.unlink(missing_ok=True)
         else:
             # Fallback: remove empty hook lists
             data = load_json(settings_path)
@@ -539,7 +564,7 @@ class KnowledgeEngineModule(SettingsModule):
                 entries = [e for e in entries if e.get("hooks")]
                 data.setdefault("hooks", {})[hook_type] = entries
             save_json(settings_path, data)
-            ui.info("知识引擎 hooks 已移除")
+            ui.info("知识引擎 hooks 已移除 (降级模式)")
 
         # Remove crontab
         marker = "knowledge-engine-cron"
@@ -554,15 +579,12 @@ class KnowledgeEngineModule(SettingsModule):
 
         ui.info("注意: 知识库数据未删除")
 
-    def _find_engine_dirs(self) -> list[Path]:
-        """Find possible knowledge-engine source dirs."""
-        candidates = []
-        # The script_dir is passed to configure/unconfigure indirectly;
-        # check common layout: script_dir/knowledge-engine/
-        # Since we don't have script_dir here, search upward from known locations
-        # This is a best-effort fallback; precise removal requires the cli path
-        # stored during configure().
-        return candidates  # TODO: accept script_dir param for precise removal
+    def _read_engine_marker(self, target_home: Path) -> Optional[str]:
+        """Read the stored cli path from marker file."""
+        marker_path = target_home / "knowledge" / self.ENGINE_MARKER
+        if marker_path.is_file():
+            return marker_path.read_text().strip()
+        return None
 
 
 # ── Pi-specific modules ──────────────────────────────────────
@@ -599,6 +621,8 @@ class PiSkillsModule(Module):
 
     def uninstall(self, target_home: Path, script_dir: Path) -> None:
         src_dir = script_dir / "skills"
+        if not src_dir.is_dir():
+            return
         for child in sorted(src_dir.iterdir()):
             target = target_home / "skills" / child.name
             if target.is_symlink() and is_our_symlink(target, child):
@@ -641,6 +665,8 @@ class PiAgentsModule(Module):
 
     def uninstall(self, target_home: Path, script_dir: Path) -> None:
         src_dir = script_dir / "agents"
+        if not src_dir.is_dir():
+            return
         for child in sorted(src_dir.iterdir()):
             agent_md = child / "agent.md"
             target = target_home / "agents" / f"{child.name}.md"
@@ -681,6 +707,8 @@ class PiStatuslineModule(Module):
 
     def uninstall(self, target_home: Path, script_dir: Path) -> None:
         src_dir = script_dir / "custom-tools" / "pi-statusline"
+        if not src_dir.is_dir():
+            return
         target_dir = target_home / "extensions" / "statusline"
         if not target_dir.is_dir():
             return

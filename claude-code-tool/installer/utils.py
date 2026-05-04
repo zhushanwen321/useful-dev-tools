@@ -16,24 +16,38 @@ def resolve_path(path: Path) -> Path:
 
 
 def is_our_symlink(target: Path, source: Path) -> bool:
-    """Check if target is a symlink pointing to source."""
+    """Check if target is a symlink pointing to source.
+
+    Uses resolved path comparison to handle both absolute and relative symlinks.
+    Also checks if the raw readlink value matches str(source) as a fast path.
+    """
     target = Path(target)
     source = Path(source)
     if not target.is_symlink():
         return False
     current = os.readlink(target)
+    # Fast path: exact string match
+    if current == str(source):
+        return True
+    # Resolve both sides for reliable comparison
     resolved_src = resolve_path(source)
     if not current.startswith("/"):
         resolved_current = (target.parent / current).resolve()
     else:
-        resolved_current = Path(current)
-    return resolved_current == resolved_src or current == str(source)
+        resolved_current = Path(current).resolve()
+    return resolved_current == resolved_src
 
 
 def backup_file(path: Path, backup_dir: Path) -> Optional[Path]:
-    """Backup a file, return backup path or None."""
+    """Backup a file, return backup path or None.
+
+    Skips symlinks to prevent moving files from outside the expected tree.
+    """
     path = Path(path)
     if not path.exists():
+        return None
+    # Safety: don't move symlinks (could point to sensitive files)
+    if path.is_symlink():
         return None
     backup_dir = Path(backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -52,16 +66,22 @@ def ensure_parent(path: Path) -> None:
 
 
 def create_symlink(source: Path, target: Path) -> None:
-    """Create a symlink target -> source, handling existing files."""
+    """Create a symlink target -> source atomically via tmp+rename.
+
+    This avoids the TOCTOU race window between unlink() and symlink_to().
+    """
     target = Path(target)
     source = Path(source)
-    if target.is_symlink():
-        target.unlink()
-    elif target.exists():
-        # Should be backed up before this point
-        target.unlink()
     ensure_parent(target)
-    target.symlink_to(source)
+    # Atomic symlink: create as temp, then rename over target
+    tmp = target.with_suffix(target.suffix + "..tmp")
+    try:
+        tmp.unlink(missing_ok=True)
+        tmp.symlink_to(source)
+        os.rename(str(tmp), str(target))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def cmd_exists(name: str) -> bool:

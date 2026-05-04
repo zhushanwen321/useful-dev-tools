@@ -71,6 +71,12 @@
 - 每个subagent负责一个子任务，子任务之间需要安排清楚有什么依赖关系，哪些要串行、哪些并行。
 - 拆分给subagent的子任务，需要预估难度和上下文大小（参考思考习惯），如果超过中等，建议进一步拆解。每个subagent修改的文件不建议超过5个，修改行数不建议超过3000行。一般以3个文件、1000行左右为一个子任务。
 
+**subagent model 选择规则：**
+- **Claude Code 环境**：按 Claude Code 自带的模型选择规则指定 subagent，无需手动指定 model 参数
+- **Pi 环境**（必须指定 `provider/model` 格式）：
+  - **简单任务**（文件查找、批量替换、简单格式化等）：优先 `llm-simple-router/glm-5-turbo`，失败时回退 `ocg-deepseek/deepseek-v4-flash`
+  - **复杂任务**（代码分析、架构设计、多文件重构等）：优先 `llm-simple-router/glm-5.1`，失败时回退 `ocg-deepseek/deepseek-v4-pro`
+
 ### Superpowers Skill 覆盖规则
 
 **以下规则强制覆盖所有 superpowers skill 中的冲突默认值。**
