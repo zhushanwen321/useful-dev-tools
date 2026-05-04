@@ -24,6 +24,7 @@ MODULES=(
   "pi-skills|pi Skills (→ ~/.pi/agent/skills)|symlink-pi-skill|low|"
   "pi-agents|pi Agents (→ ~/.pi/agent/agents)|symlink-pi-agent|low|"
   "pi-statusline|pi 状态栏 Extension (→ ~/.pi/agent/extensions/statusline)|symlink-pi-statusline|low|"
+  "tavily-cli|Tavily CLI 工具 (search/extract/crawl)|tavily-cli|low|"
 )
 
 # 解析模块字段
@@ -356,6 +357,10 @@ plan_install_for_home() {
         done
         ;;
 
+      tavily-cli)
+        plan_configure_tavily_cli "$HOME_DIR"
+        ;;
+
       file)
         local SRC TARGET
         case "$NAME" in
@@ -478,6 +483,40 @@ plan_configure_knowledge_engine() {
   plan_setting "settings.json: 添加知识引擎 hooks (PostToolUse + Stop + SessionStart)" ""
   plan_setting "安装知识引擎依赖 (bun install)" ""
   plan_setting "创建知识库目录和默认配置" ""
+}
+
+plan_configure_tavily_cli() {
+  local HOME_DIR="$1"
+  local TAVILY_SRC="$CLAUDE_DIR/skills/tavily-web-search/scripts/tavily.py"
+
+  if [ ! -f "$TAVILY_SRC" ]; then
+    plan_message "Tavily CLI: 源码不存在 ($TAVILY_SRC)，跳过"
+    return
+  fi
+
+  # 检查 python3
+  if ! command -v python3 &>/dev/null; then
+    plan_message "Tavily CLI: 缺少 python3，跳过"
+    plan_message "  安装 python3: apt install python3 (Linux) 或 brew install python3 (macOS)"
+    return
+  fi
+
+  # 检查 httpx
+  local HAS_HTTPX=false
+  python3 -c "import httpx" 2>/dev/null && HAS_HTTPX=true
+
+  local TAVILY_BIN="$HOME/.local/bin/tavily"
+  local TAVILY_LIB="$HOME/.local/share/tavily"
+
+  if [ -f "$TAVILY_BIN" ] && [ -d "$TAVILY_LIB" ]; then
+    plan_message "Tavily CLI 已安装，将更新"
+  else
+    plan_message "Tavily CLI: 部署 tavily.py + wrapper 到 ~/.local/"
+  fi
+
+  if [ "$HAS_HTTPX" = false ]; then
+    plan_setting "Tavily CLI: 安装 httpx 依赖 (pip3 install httpx)" ""
+  fi
 }
 
 # ======================== 模块选择交互 ========================
@@ -1291,6 +1330,107 @@ unconfigure_skill_inject() {
     fi
 }
 
+# ======================== Tavily CLI 部署 ========================
+
+configure_tavily_cli() {
+    echo "--- 配置 Tavily CLI ---"
+
+    local TAVILY_SRC="$CLAUDE_DIR/skills/tavily-web-search/scripts/tavily.py"
+    if [ ! -f "$TAVILY_SRC" ]; then
+        echo "  ! Tavily CLI 源码不存在: $TAVILY_SRC"
+        return 1
+    fi
+
+    # 检查 python3
+    if ! command -v python3 &>/dev/null; then
+        echo "  ! python3 未安装，跳过 Tavily CLI"
+        return 1
+    fi
+    echo "  ✓ python3: $(python3 --version 2>&1)"
+
+    # 检查 httpx
+    if ! python3 -c "import httpx" 2>/dev/null; then
+        echo "  + 安装 httpx 依赖..."
+        pip3 install httpx 2>/dev/null || pip install httpx 2>/dev/null || {
+            echo "  ! httpx 安装失败，请手动执行: pip3 install httpx"
+            return 1
+        }
+    fi
+    echo "  ✓ httpx: $(python3 -c 'import httpx; print(httpx.__version__)' 2>/dev/null)"
+
+    # 部署 tavily.py 到 ~/.local/share/tavily/
+    local TAVILY_LIB="$HOME/.local/share/tavily"
+    mkdir -p "$TAVILY_LIB"
+    cp "$TAVILY_SRC" "$TAVILY_LIB/tavily.py"
+    echo "  ✓ 部署 tavily.py → $TAVILY_LIB/tavily.py"
+
+    # 部署 wrapper 脚本到 ~/.local/bin/tavily
+    local TAVILY_BIN="$HOME/.local/bin/tavily"
+    mkdir -p "$HOME/.local/bin"
+
+    cat > "$TAVILY_BIN" << 'WRAPPER_EOF'
+#!/usr/bin/env python3
+"""tavily — wrapper that sources shell env if needed, then runs the real script."""
+import os, sys
+
+# 如果 TAVILY_API_KEYS 已经在环境中，直接运行
+if os.environ.get("TAVILY_API_KEYS"):
+    os.execvp(sys.executable, [sys.executable,
+        os.path.expanduser("~/.local/share/tavily/tavily.py")] + sys.argv[1:])
+
+# 否则尝试从 ~/.shell/tavily.sh 读取
+tavily_sh = os.path.expanduser("~/.shell/tavily.sh")
+if os.path.isfile(tavily_sh):
+    with open(tavily_sh) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("export TAVILY_API_KEYS="):
+                val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                os.environ["TAVILY_API_KEYS"] = val
+                break
+
+if os.environ.get("TAVILY_API_KEYS"):
+    os.execvp(sys.executable, [sys.executable,
+        os.path.expanduser("~/.local/share/tavily/tavily.py")] + sys.argv[1:])
+else:
+    print("错误: 请设置环境变量 TAVILY_API_KEYS (逗号分隔多个 key)", file=sys.stderr)
+    sys.exit(1)
+WRAPPER_EOF
+
+    chmod +x "$TAVILY_BIN"
+    echo "  ✓ 部署 tavily wrapper → $TAVILY_BIN"
+
+    # 验证
+    if command -v tavily &>/dev/null; then
+        echo "  ✓ tavily 命令可用: $(which tavily)"
+    else
+        echo "  ! tavily 命令未在 PATH 中，请确保 ~/.local/bin 在 PATH 中"
+        echo "    添加: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
+
+    return 0
+}
+
+unconfigure_tavily_cli() {
+    echo "--- 移除 Tavily CLI ---"
+
+    local TAVILY_BIN="$HOME/.local/bin/tavily"
+    local TAVILY_LIB="$HOME/.local/share/tavily"
+
+    if [ -f "$TAVILY_BIN" ]; then
+        rm -f "$TAVILY_BIN"
+        echo "  ✓ 已移除 $TAVILY_BIN"
+    fi
+
+    if [ -d "$TAVILY_LIB" ]; then
+        rm -rf "$TAVILY_LIB"
+        echo "  ✓ 已移除 $TAVILY_LIB"
+    fi
+
+    # 注意: 不卸载 httpx，因为可能被其他工具使用
+    echo "  注意: httpx 依赖未卸载（可能被其他工具使用）"
+}
+
 # ======================== 新交互主流程 ========================
 
 new_handle_install() {
@@ -1421,6 +1561,9 @@ new_handle_install() {
               ;;
           esac
           ;;
+        tavily-cli)
+          configure_tavily_cli
+          ;;
       esac
     done
   done
@@ -1461,6 +1604,8 @@ new_handle_uninstall() {
       unconfigure_knowledge_engine
       echo ""
       unconfigure_skill_inject
+      echo ""
+      unconfigure_tavily_cli
       log_install "UNINSTALL from ~/.claude" "all"
       ;;
     2)
@@ -1486,6 +1631,8 @@ new_handle_uninstall() {
       unconfigure_knowledge_engine
       echo ""
       unconfigure_skill_inject
+      echo ""
+      unconfigure_tavily_cli
       if [ -d "$OPENCODE_HOME" ]; then
         uninstall_for_home "$OPENCODE_HOME" "~/.opencode"
       fi
