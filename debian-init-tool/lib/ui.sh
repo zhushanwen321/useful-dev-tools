@@ -318,6 +318,7 @@ draw_main_menu() {
             "docker"    "$(get_module_status docker) Docker 配置"
             "podman"    "$(get_module_status podman) Podman 配置"
             "nodejs"    "$(get_module_status nodejs) Node.js / npm"
+            "gh"        "$(get_module_status gh) GitHub CLI"
             "all"       "一键配置所有模块"
             "backup"    "查看/恢复备份"
             "log"       "查看日志"
@@ -394,13 +395,14 @@ get_module_index() {
         docker) echo 10 ;;
         podman) echo 11 ;;
         nodejs) echo 12 ;;
+        gh) echo 13 ;;
         *) echo 99 ;;
     esac
 }
 
 # 运行所有模块
 run_all_modules() {
-    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "docker" "podman" "nodejs")
+    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "docker" "podman" "nodejs" "gh")
     local total=${#modules[@]}
     local current=0
     local failed=()
