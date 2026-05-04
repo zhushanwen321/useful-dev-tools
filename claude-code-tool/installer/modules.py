@@ -8,15 +8,17 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Optional
 
 from . import ui
 from .utils import (
     backup_file, create_symlink, is_our_symlink, resolve_path,
-    cmd_exists, run_cmd, load_json, save_json, update_settings,
+    cmd_exists, run_cmd, load_json, save_json,
 )
 
 
@@ -71,8 +73,11 @@ class Module(ABC):
     """Base class for all installable modules."""
     name: str = ""
     description: str = ""
-    risk: str = "low"  # low, medium, high
-    dep_tools: list[str] = []  # External commands required
+    risk: str = "low"
+
+    def __init__(self):
+        # dep_tools must be per-instance, not shared class-level mutable
+        self.dep_tools: list[str] = []
 
     @property
     def risk_label(self) -> str:
@@ -96,7 +101,6 @@ class Module(ABC):
 
     @abstractmethod
     def plan(self, target_home: Path, script_dir: Path) -> list[Action]:
-        """Return planned actions for this target."""
         ...
 
     def execute(self, actions: list[Action], backup_dir: Path) -> None:
@@ -112,6 +116,7 @@ class Module(ABC):
             ui.success(f"链接: {action.target.name}")
 
         elif isinstance(action, BackupAction):
+            backup_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(action.original), str(action.backup))
 
         elif isinstance(action, DeployFileAction):
@@ -150,14 +155,12 @@ class Module(ABC):
         ...
 
 
-import sys  # needed for sys.executable in PipInstallAction handler
-
-
 # ── Symlink modules (per-target) ─────────────────────────────
 
 class SymlinkModule(Module):
     """Creates symlinks from script_dir/<dir_name>/* into target_home/<dir_name>/*."""
     def __init__(self, dir_name: str, description: str = "", risk: str = "low"):
+        super().__init__()
         self.dir_name = dir_name
         self.name = dir_name
         self.description = description or dir_name
@@ -178,9 +181,9 @@ class SymlinkModule(Module):
             child_name = child.name
             target = target_home / self.dir_name / child_name
             if target.is_symlink() and is_our_symlink(target, child):
-                continue  # already linked correctly
+                continue
             if target.exists() and not target.is_symlink():
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                 actions.append(BackupAction(
                     description=f"备份 {child_name}",
                     original=target,
@@ -188,8 +191,7 @@ class SymlinkModule(Module):
                 ))
             actions.append(SymlinkAction(
                 description=f"{self.dir_name}/{child_name}",
-                source=child,
-                target=target,
+                source=child, target=target,
             ))
         return actions
 
@@ -206,6 +208,7 @@ class SymlinkModule(Module):
 class FileModule(Module):
     """Installs a single file as symlink (e.g. CLAUDE.md)."""
     def __init__(self, name: str, file_name: str, description: str = "", risk: str = "low"):
+        super().__init__()
         self.name = name
         self.file_name = file_name
         self.description = description or file_name
@@ -223,7 +226,6 @@ class FileModule(Module):
         if target.is_symlink() and is_our_symlink(target, src):
             return []
         if target.exists() and not target.is_symlink():
-            from datetime import datetime
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             actions.append(BackupAction(
                 description=f"备份 {self.file_name}",
@@ -232,8 +234,7 @@ class FileModule(Module):
             ))
         actions.append(SymlinkAction(
             description=self.file_name,
-            source=src,
-            target=target,
+            source=src, target=target,
         ))
         return actions
 
@@ -254,16 +255,14 @@ class SettingsModule(Module):
 
     @abstractmethod
     def configure(self, target_home: Path, script_dir: Path) -> bool:
-        """Actually configure. Return True on success."""
         ...
-
-    def execute(self, actions: list[Action], backup_dir: Path) -> None:
-        # Settings modules override execute because they don't use standard actions
-        pass
 
     @abstractmethod
     def unconfigure(self, target_home: Path) -> None:
         ...
+
+    def execute(self, actions: list[Action], backup_dir: Path) -> None:
+        pass  # Settings use configure(), not standard actions
 
     def uninstall(self, target_home: Path, script_dir: Path) -> None:
         self.unconfigure(target_home)
@@ -275,7 +274,7 @@ class StatuslineModule(SettingsModule):
     risk = "low"
 
     def is_applicable(self, target_home: Path) -> bool:
-        return target_home.name == ".claude" or target_home.name == ".opencode"
+        return target_home.name in (".claude", ".opencode")
 
     def configure(self, target_home: Path, script_dir: Path) -> bool:
         settings_path = target_home / "settings.json"
@@ -305,7 +304,6 @@ class SkillInjectModule(SettingsModule):
     name = "skill-inject"
     description = "Skill 注入 Hook"
     risk = "medium"
-
     HOOK_CMD = 'bash "$HOME/.claude/hooks/skill-inject.sh"'
 
     def is_applicable(self, target_home: Path) -> bool:
@@ -318,7 +316,6 @@ class SkillInjectModule(SettingsModule):
         hooks = data.setdefault("hooks", {})
         pre_tool_use = hooks.setdefault("PreToolUse", [])
 
-        # Check if already configured
         for entry in pre_tool_use:
             if entry.get("matcher") == "Skill":
                 for h in entry.get("hooks", []):
@@ -326,7 +323,6 @@ class SkillInjectModule(SettingsModule):
                         ui.info("Skill 注入 Hook 已配置，跳过")
                         return True
 
-        # Remove old Skill matcher if exists
         pre_tool_use = [e for e in pre_tool_use if e.get("matcher") != "Skill"]
         pre_tool_use.append({
             "matcher": "Skill",
@@ -340,16 +336,12 @@ class SkillInjectModule(SettingsModule):
     def unconfigure(self, target_home: Path) -> None:
         settings_path = target_home / "settings.json"
         data = load_json(settings_path)
-
-        pre_tool_use = data.get("hooks", {}).get("PreToolUse", [])
-        pre_tool_use = [
-            e for e in pre_tool_use
-            if not (e.get("matcher") == "Skill" and
-                    any(h.get("command") == self.HOOK_CMD for h in e.get("hooks", [])))
-        ]
-        # Clean empty hook lists
-        pre_tool_use = [e for e in pre_tool_use if e.get("hooks")]
-        data.setdefault("hooks", {})["PreToolUse"] = pre_tool_use
+        pre = data.get("hooks", {}).get("PreToolUse", [])
+        pre = [e for e in pre
+               if not (e.get("matcher") == "Skill"
+                       and any(h.get("command") == self.HOOK_CMD for h in e.get("hooks", [])))]
+        pre = [e for e in pre if e.get("hooks")]
+        data.setdefault("hooks", {})["PreToolUse"] = pre
         save_json(settings_path, data)
         ui.info("Skill 注入 Hook 已移除")
 
@@ -358,7 +350,10 @@ class KnowledgeEngineModule(SettingsModule):
     name = "knowledge-engine"
     description = "知识引擎"
     risk = "high"
-    dep_tools = ["bun", "jq"]
+
+    def __init__(self):
+        super().__init__()
+        self.dep_tools = ["bun", "jq"]
 
     def is_applicable(self, target_home: Path) -> bool:
         return target_home.name == ".claude"
@@ -370,13 +365,11 @@ class KnowledgeEngineModule(SettingsModule):
             ui.warn("知识引擎源码不存在，跳过")
             return False
 
-        # Install deps
         ui.info("安装知识引擎依赖...")
         result = run_cmd(["bun", "install", "--frozen-lockfile"], cwd=str(engine_dir))
         if result.returncode != 0:
             run_cmd(["bun", "install", "--no-save"], cwd=str(engine_dir))
 
-        # Create knowledge dir + config
         knowledge_dir = target_home / "knowledge"
         knowledge_dir.mkdir(parents=True, exist_ok=True)
         config_path = knowledge_dir / "config.json"
@@ -387,7 +380,6 @@ class KnowledgeEngineModule(SettingsModule):
                 "excludePatterns": ["**/*.lock", "**/node_modules/**", ".env*"],
             }, perm=0o644)
 
-        # Update settings.json hooks
         cli_abs = cli_path.resolve()
         record_cmd = f'bun "{cli_abs}" record'
         process_cmd = f'bun "{cli_abs}" process'
@@ -395,37 +387,29 @@ class KnowledgeEngineModule(SettingsModule):
 
         settings_path = target_home / "settings.json"
         data = load_json(settings_path)
-
         hooks = data.setdefault("hooks", {})
 
-        # PostToolUse
         post = [e for e in hooks.get("PostToolUse", [])
                 if not any(h.get("command") == record_cmd for h in e.get("hooks", []))]
         post.append({"matcher": "Write|Edit", "hooks": [
-            {"type": "command", "command": record_cmd, "async": True, "timeout": 5}
-        ]})
+            {"type": "command", "command": record_cmd, "async": True, "timeout": 5}]})
         hooks["PostToolUse"] = post
 
-        # Stop
         stop = [e for e in hooks.get("Stop", [])
                 if not any(h.get("command") == process_cmd for h in e.get("hooks", []))]
         stop.append({"hooks": [
-            {"type": "command", "command": process_cmd, "async": True, "timeout": 120}
-        ]})
+            {"type": "command", "command": process_cmd, "async": True, "timeout": 120}]})
         hooks["Stop"] = stop
 
-        # SessionStart
         start = [e for e in hooks.get("SessionStart", [])
                  if not any(h.get("command") == inject_cmd for h in e.get("hooks", []))]
         start.append({"hooks": [
-            {"type": "command", "command": inject_cmd, "timeout": 5}
-        ]})
+            {"type": "command", "command": inject_cmd, "timeout": 5}]})
         hooks["SessionStart"] = start
 
         save_json(settings_path, data)
         ui.success("知识引擎 hooks 已配置")
 
-        # Crontab
         cron_script = engine_dir / "scripts" / "cron-maintenance.sh"
         cron_entry = f"0 23 * * * {cron_script} >> ~/.claude/knowledge/maintenance.log 2>&1 # knowledge-engine-cron"
         try:
@@ -433,18 +417,15 @@ class KnowledgeEngineModule(SettingsModule):
             existing = result.stdout if result.returncode == 0 else ""
             lines = [l for l in existing.splitlines() if "knowledge-engine-cron" not in l]
             lines.append(cron_entry)
-            proc = subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True)
-            if proc.returncode == 0:
-                ui.success("crontab 已配置 (每天 23:00)")
+            subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True)
+            ui.success("crontab 已配置 (每天 23:00)")
         except Exception:
             ui.warn("crontab 配置失败")
-
         return True
 
     def unconfigure(self, target_home: Path) -> None:
         settings_path = target_home / "settings.json"
         data = load_json(settings_path)
-        # Simplified: remove knowledge-engine hooks by command pattern
         for hook_type in ("PostToolUse", "Stop", "SessionStart"):
             entries = data.get("hooks", {}).get(hook_type, [])
             entries = [e for e in entries if e.get("hooks")]
@@ -454,7 +435,7 @@ class KnowledgeEngineModule(SettingsModule):
         ui.info("注意: 知识库数据未删除")
 
 
-# ── Pi-specific modules (per-target for ~/.pi/agent) ──────────
+# ── Pi-specific modules ──────────────────────────────────────
 
 class PiSkillsModule(Module):
     name = "pi-skills"
@@ -465,7 +446,6 @@ class PiSkillsModule(Module):
         return target_home.name == "agent" and target_home.parent.name == ".pi"
 
     def plan(self, target_home: Path, script_dir: Path) -> list[Action]:
-        from datetime import datetime
         src_dir = script_dir / "skills"
         if not src_dir.is_dir():
             return []
@@ -481,12 +461,10 @@ class PiSkillsModule(Module):
                 actions.append(BackupAction(
                     description=f"备份 {child.name}",
                     original=target,
-                    backup=target_home / "bak" / f"{child.name}_{ts}",
-                ))
+                    backup=target_home / "bak" / f"{child.name}_{ts}"))
             actions.append(SymlinkAction(
                 description=f"pi/skills/{child.name}",
-                source=child, target=target,
-            ))
+                source=child, target=target))
         return actions
 
     def uninstall(self, target_home: Path, script_dir: Path) -> None:
@@ -507,7 +485,6 @@ class PiAgentsModule(Module):
         return target_home.name == "agent" and target_home.parent.name == ".pi"
 
     def plan(self, target_home: Path, script_dir: Path) -> list[Action]:
-        from datetime import datetime
         src_dir = script_dir / "agents"
         if not src_dir.is_dir():
             return []
@@ -524,12 +501,10 @@ class PiAgentsModule(Module):
                 actions.append(BackupAction(
                     description=f"备份 {child.name}.md",
                     original=target,
-                    backup=target_home / "bak" / f"{child.name}.md_{ts}",
-                ))
+                    backup=target_home / "bak" / f"{child.name}.md_{ts}"))
             actions.append(SymlinkAction(
                 description=f"pi/agents/{child.name}",
-                source=agent_md, target=target,
-            ))
+                source=agent_md, target=target))
         return actions
 
     def uninstall(self, target_home: Path, script_dir: Path) -> None:
@@ -551,7 +526,6 @@ class PiStatuslineModule(Module):
         return target_home.name == "agent" and target_home.parent.name == ".pi"
 
     def plan(self, target_home: Path, script_dir: Path) -> list[Action]:
-        from datetime import datetime
         src_dir = script_dir / "custom-tools" / "pi-statusline"
         if not src_dir.is_dir():
             return []
@@ -567,12 +541,10 @@ class PiStatuslineModule(Module):
                 actions.append(BackupAction(
                     description=f"备份 {child.name}",
                     original=target,
-                    backup=target_home / "bak" / f"statusline_{child.name}_{ts}",
-                ))
+                    backup=target_home / "bak" / f"statusline_{child.name}_{ts}"))
             actions.append(SymlinkAction(
                 description=f"pi/extensions/statusline/{child.name}",
-                source=child, target=target,
-            ))
+                source=child, target=target))
         return actions
 
     def uninstall(self, target_home: Path, script_dir: Path) -> None:
@@ -587,19 +559,18 @@ class PiStatuslineModule(Module):
                 ui.info(f"移除 pi statusline: {child.name}")
 
 
-# ── User-level modules (run once, not per-target) ────────────
+# ── User-level modules ───────────────────────────────────────
 
 class UserLevelModule(Module):
     """Base for modules that are user-level, not per-target."""
     def is_applicable(self, target_home: Path) -> bool:
-        return False  # Never per-target
+        return False
 
     def plan(self, target_home: Path, script_dir: Path) -> list[Action]:
-        return []  # User-level modules don't use per-target plan
+        return []
 
     @abstractmethod
     def plan_standalone(self, script_dir: Path) -> list[Action]:
-        """Plan actions (user-level, no target)."""
         ...
 
     @abstractmethod
@@ -626,9 +597,9 @@ class TavilyCliModule(UserLevelModule):
         if not src.exists():
             return [MessageAction(description="Tavily CLI: 源码不存在，跳过")]
 
-        actions: list[Action] = []
         tavily_lib = Path.home() / ".local" / "share" / "tavily"
         tavily_bin = Path.home() / ".local" / "bin" / "tavily"
+        actions: list[Action] = []
 
         if tavily_bin.exists() and tavily_lib.is_dir():
             actions.append(MessageAction(description="Tavily CLI 已安装，将更新"))
@@ -637,52 +608,46 @@ class TavilyCliModule(UserLevelModule):
 
         actions.append(DeployFileAction(
             description="部署 tavily.py",
-            source=src,
-            target=tavily_lib / "tavily.py",
-        ))
+            source=src, target=tavily_lib / "tavily.py"))
         actions.append(GenerateFileAction(
             description="部署 tavily wrapper",
             target=tavily_bin,
             content=self._wrapper_script(),
-            executable=True,
-        ))
+            executable=True))
 
-        # Check httpx
         result = run_cmd(["python3", "-c", "import httpx"])
         if result.returncode != 0:
             actions.append(PipInstallAction(
-                description="安装 httpx 依赖",
-                package="httpx",
-            ))
-
+                description="安装 httpx 依赖", package="httpx"))
         return actions
 
     def _wrapper_script(self) -> str:
-        return '''#!/usr/bin/env python3
-"""tavily — wrapper that sources shell env if needed, then runs the real script."""
-import os, sys
-
-if os.environ.get("TAVILY_API_KEYS"):
-    os.execvp(sys.executable, [sys.executable,
-        os.path.expanduser("~/.local/share/tavily/tavily.py")] + sys.argv[1:])
-
-tavily_sh = os.path.expanduser("~/.shell/tavily.sh")
-if os.path.isfile(tavily_sh):
-    with open(tavily_sh) as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith("export TAVILY_API_KEYS="):
-                val = line.split("=", 1)[1].strip().strip(\'"\').strip("\'")
-                os.environ["TAVILY_API_KEYS"] = val
-                break
-
-if os.environ.get("TAVILY_API_KEYS"):
-    os.execvp(sys.executable, [sys.executable,
-        os.path.expanduser("~/.local/share/tavily/tavily.py")] + sys.argv[1:])
-else:
-    print("错误: 请设置环境变量 TAVILY_API_KEYS (逗号分隔多个 key)", file=sys.stderr)
-    sys.exit(1)
-'''
+        return (
+            '#!/usr/bin/env python3\n'
+            '"""tavily — wrapper that sources shell env if needed."""\n'
+            'import os, sys\n'
+            '\n'
+            'if os.environ.get("TAVILY_API_KEYS"):\n'
+            '    os.execvp(sys.executable, [sys.executable,\n'
+            '        os.path.expanduser("~/.local/share/tavily/tavily.py")] + sys.argv[1:])\n'
+            '\n'
+            'tavily_sh = os.path.expanduser("~/.shell/tavily.sh")\n'
+            'if os.path.isfile(tavily_sh):\n'
+            '    with open(tavily_sh) as f:\n'
+            '        for line in f:\n'
+            '            line = line.strip()\n'
+            '            if line.startswith("export TAVILY_API_KEYS="):\n'
+            '                val = line.split("=", 1)[1].strip().strip(\'"\').strip("\'")\n'
+            '                os.environ["TAVILY_API_KEYS"] = val\n'
+            '                break\n'
+            '\n'
+            'if os.environ.get("TAVILY_API_KEYS"):\n'
+            '    os.execvp(sys.executable, [sys.executable,\n'
+            '        os.path.expanduser("~/.local/share/tavily/tavily.py")] + sys.argv[1:])\n'
+            'else:\n'
+            '    print("错误: 请设置 TAVILY_API_KEYS 环境变量", file=sys.stderr)\n'
+            '    sys.exit(1)\n'
+        )
 
     def uninstall_standalone(self) -> None:
         tavily_bin = Path.home() / ".local" / "bin" / "tavily"
@@ -696,35 +661,27 @@ else:
         ui.info("注意: httpx 依赖未卸载")
 
 
-# ── Module registry ───────────────────────────────────────────
-
-# Platform constraints
-AGENTS_ONLY = {"skills"}
-PI_ONLY = {"pi-skills", "pi-agents", "pi-statusline"}
+# ── Registry ─────────────────────────────────────────────────
 
 def create_all_modules() -> list[Module]:
     """Create all module instances."""
     return [
-        # Symlink modules (per-target)
-        SymlinkModule("skills", "Skills 技能集合", "low"),
-        SymlinkModule("agents", "Agent 子代理", "low"),
-        SymlinkModule("commands", "自定义命令", "low"),
-        SymlinkModule("hooks", "Hook 脚本", "low"),
-        SymlinkModule("custom-tools", "自定义工具", "low"),
-
-        # File modules (per-target)
+        # Symlink (per-target)
+        SymlinkModule("skills", "Skills 技能集合"),
+        SymlinkModule("agents", "Agent 子代理"),
+        SymlinkModule("commands", "自定义命令"),
+        SymlinkModule("hooks", "Hook 脚本"),
+        SymlinkModule("custom-tools", "自定义工具"),
+        # File (per-target)
         FileModule("claude-md", "CLAUDE.md", "CLAUDE.md 全局配置", "medium"),
-
-        # Settings modules (per-target)
+        # Settings (per-target)
         StatuslineModule(),
         SkillInjectModule(),
         KnowledgeEngineModule(),
-
-        # Pi modules (per-target, only for ~/.pi/agent)
+        # Pi (per-target, ~/.pi/agent only)
         PiSkillsModule(),
         PiAgentsModule(),
         PiStatuslineModule(),
-
-        # User-level modules (run once)
+        # User-level (run once)
         TavilyCliModule(),
     ]
