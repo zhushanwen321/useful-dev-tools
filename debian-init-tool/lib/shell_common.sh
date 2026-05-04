@@ -161,7 +161,9 @@ ALIASES_EOF
     cat > "${fish_conf_dir}/env.fish" << ENV_EOF
 # 环境变量 - 由 debian-init-tool 生成
 
-set -gx PATH \$HOME/.local/bin \$PATH
+if not contains $HOME/.local/bin $PATH
+    set -gx PATH $HOME/.local/bin $PATH
+end
 set -gx EDITOR vim
 set -gx LANG en_US.UTF-8
 ENV_EOF
@@ -187,8 +189,8 @@ ensure_shell_common() {
 
     # 设置文件归属
     if [[ -n "$user" ]]; then
-        chown -R "${user}:${user}" "${home_dir}/.shell" 2>/dev/null
-        chown -R "${user}:${user}" "${home_dir}/.config/fish" 2>/dev/null
+        chown -Rh "${user}:${user}" "${home_dir}/.shell" 2>/dev/null
+        chown -Rh "${user}:${user}" "${home_dir}/.config/fish" 2>/dev/null
     fi
 
     log_info "Shell 共享配置生成完成"
