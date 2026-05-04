@@ -117,6 +117,7 @@ ${SCRIPT_NAME} v${VERSION}
     podman      Podman 配置
     nodejs      Node.js / npm 配置
     gh          GitHub CLI 配置
+    pi          pi coding agent 配置
 
 示例:
     $(basename "$0")                    # 交互模式
@@ -242,7 +243,7 @@ run_module_cli() {
 run_auto_mode() {
     log_info "启动自动配置模式..."
 
-    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "docker" "podman" "nodejs" "gh")
+    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "docker" "podman" "nodejs" "gh" "pi")
 
     # 处理 --only 参数
     if [[ -n "$ONLY_MODULES" ]]; then

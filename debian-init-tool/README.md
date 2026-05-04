@@ -25,6 +25,9 @@
 | zsh | Zsh + Oh My Zsh + 插件 |
 | docker | Docker 安装和配置 |
 | podman | Podman 安装和配置 |
+| nodejs | Node.js / npm 安装 (NodeSource) |
+| gh     | GitHub CLI (gh) 安装和配置 |
+| pi     | pi coding agent 安装和配置 |
 
 ## 快速开始
 
