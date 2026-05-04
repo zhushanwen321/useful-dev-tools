@@ -158,6 +158,12 @@ execute_plan() {
     case "$type" in
       symlink)
         local TARGET="$arg1" SRC="$arg2"
+        # 修复: 先移除父路径的 symlink，防止 mkdir/ln 通过 symlink 解析到源码目录
+        local _parent_dir
+        _parent_dir="$(dirname "$TARGET")"
+        if [ -L "$_parent_dir" ]; then
+          rm -f "$_parent_dir"
+        fi
         if [ -L "$TARGET" ]; then
           rm "$TARGET"
         elif [ -e "$TARGET" ]; then
@@ -167,7 +173,7 @@ execute_plan() {
           mkdir -p "$(dirname "$BACKUP")"
           mv "$TARGET" "$BACKUP"
         fi
-        mkdir -p "$(dirname "$TARGET")"
+        mkdir -p "$_parent_dir"
         ln -s "$SRC" "$TARGET"
         ;;
       backup)
