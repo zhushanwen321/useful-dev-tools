@@ -315,6 +315,7 @@ draw_main_menu() {
             "user"      "$(get_module_status user) 用户管理"
             "bash"      "$(get_module_status bash) Bash 配置"
             "zsh"       "$(get_module_status zsh) Zsh 配置"
+            "fish"      "$(get_module_status fish) Fish 配置"
             "docker"    "$(get_module_status docker) Docker 配置"
             "podman"    "$(get_module_status podman) Podman 配置"
             "nodejs"    "$(get_module_status nodejs) Node.js / npm"
@@ -393,18 +394,19 @@ get_module_index() {
         user) echo 7 ;;
         bash) echo 8 ;;
         zsh) echo 9 ;;
-        docker) echo 10 ;;
-        podman) echo 11 ;;
-        nodejs) echo 12 ;;
-        gh) echo 13 ;;
-        pi) echo 14 ;;
+        fish) echo 10 ;;
+        docker) echo 11 ;;
+        podman) echo 12 ;;
+        nodejs) echo 13 ;;
+        gh) echo 14 ;;
+        pi) echo 15 ;;
         *) echo 99 ;;
     esac
 }
 
 # 运行所有模块
 run_all_modules() {
-    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "docker" "podman" "nodejs" "gh" "pi")
+    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "fish" "docker" "podman" "nodejs" "gh" "pi")
     local total=${#modules[@]}
     local current=0
     local failed=()

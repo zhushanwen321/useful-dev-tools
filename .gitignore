@@ -28,6 +28,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!debian-init-tool/lib/
 lib64/
 parts/
 sdist/

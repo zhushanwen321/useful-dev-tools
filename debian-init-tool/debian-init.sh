@@ -243,7 +243,7 @@ run_module_cli() {
 run_auto_mode() {
     log_info "启动自动配置模式..."
 
-    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "docker" "podman" "nodejs" "gh" "pi")
+    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "fish" "docker" "podman" "nodejs" "gh" "pi")
 
     # 处理 --only 参数
     if [[ -n "$ONLY_MODULES" ]]; then

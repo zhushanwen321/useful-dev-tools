@@ -1,6 +1,7 @@
 #!/bin/bash
 # Zsh 配置模块
 # 安装和配置 Zsh、Oh My Zsh 和插件
+# 通用配置（proxy/aliases/env）由 ~/.shell/ 共享目录提供
 
 # 综合选择页：将主题、插件、默认 Shell 合并到一个 whiptail checklist
 select_zsh_all_in_one() {
@@ -128,16 +129,20 @@ configure_zsh() {
         install_zsh_plugins "$plugins" "$target_user" "$home_dir"
     fi
 
-    # 8. 生成 .zshrc
+    # 8. 生成共享配置 (~/.shell/)
+    local proxy_host="${PROXY_HOST:-127.0.0.1}"
+    local proxy_port="${PROXY_PORT:-7890}"
+    proxy_host=$(draw_inputbox "代理配置" "代理主机地址:" "$proxy_host") || proxy_host="${PROXY_HOST:-127.0.0.1}"
+    proxy_port=$(draw_inputbox "代理配置" "代理端口:" "$proxy_port") || proxy_port="${PROXY_PORT:-7890}"
+    ensure_shell_common "$home_dir" "$target_user" "$proxy_host" "$proxy_port"
+
+    # 9. 生成 .zshrc
     generate_zshrc "$target_user" "$home_dir" "$theme" "$plugins"
 
-    # 9. 设置为默认 shell（根据综合选择页的勾选决定）
+    # 10. 设置为默认 shell（根据综合选择页的勾选决定）
     if $ZSH_SET_DEFAULT_SHELL; then
         chsh -s /bin/zsh "$target_user"
     fi
-
-    # 10. 添加代理函数
-    add_zsh_proxy_functions "$home_dir"
 
     # 确保所有文件归属正确
     chown -R "${target_user}:${target_user}" "${home_dir}/.oh-my-zsh" 2>/dev/null
@@ -446,40 +451,10 @@ SAVEHIST=10000
 setopt HIST_IGNORE_DUPS
 setopt HIST_IGNORE_SPACE
 
-# 别名
-alias ll='ls -alF'
-alias la='ls -A'
-alias l='ls -CF'
-alias cls='clear'
-alias ..='cd ..'
-alias ...='cd ../..'
-
-EOF
-
-    # 添加代理函数
-    local proxy_host="${PROXY_HOST:-127.0.0.1}"
-    local proxy_port="${PROXY_PORT:-7890}"
-
-    cat >> "$zshrc_file" << EOF
-
-# 代理函数
-proxy() {
-    export http_proxy="http://${proxy_host}:${proxy_port}"
-    export https_proxy="http://${proxy_host}:${proxy_port}"
-    export all_proxy="socks5://${proxy_host}:${proxy_port}"
-    export no_proxy="localhost,127.0.0.1,::1,.local"
-    echo "代理已启用: ${proxy_host}:${proxy_port}"
-}
-
-noproxy() {
-    unset http_proxy https_proxy all_proxy no_proxy
-    echo "代理已关闭"
-}
-
-# IP 查询
-myip() {
-    curl -s --connect-timeout 5 ifconfig.me
-}
+# --- 加载共享配置 (~/.shell/) ---
+for f in ~/.shell/proxy.sh ~/.shell/aliases.sh ~/.shell/env.sh; do
+    [ -f "\$f" ] && source "\$f"
+done
 
 EOF
 
@@ -488,22 +463,4 @@ EOF
     chown "${user}:${user}" "$zshrc_file"
 
     log_info ".zshrc 已生成"
-}
-
-# 添加代理函数到 zshrc
-add_zsh_proxy_functions() {
-    local home_dir="$1"
-    local zshrc="${home_dir}/.zshrc"
-
-    if [[ ! -f "$zshrc" ]]; then
-        return
-    fi
-
-    # 检查是否已存在
-    if grep -q "function proxy" "$zshrc" 2>/dev/null; then
-        return
-    fi
-
-    # 代理配置已在 generate_zshrc 中添加
-    log_debug "代理函数已配置"
 }
