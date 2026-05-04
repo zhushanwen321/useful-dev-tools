@@ -557,12 +557,12 @@ class KnowledgeEngineModule(SettingsModule):
     def _find_engine_dirs(self) -> list[Path]:
         """Find possible knowledge-engine source dirs."""
         candidates = []
-        # Check common locations
-        home = Path.home()
-        for p in [home / ".claude", home / ".opencode"]:
-            # Look for knowledge-engine in parent of .claude
-            pass
-        return candidates
+        # The script_dir is passed to configure/unconfigure indirectly;
+        # check common layout: script_dir/knowledge-engine/
+        # Since we don't have script_dir here, search upward from known locations
+        # This is a best-effort fallback; precise removal requires the cli path
+        # stored during configure().
+        return candidates  # TODO: accept script_dir param for precise removal
 
 
 # ── Pi-specific modules ──────────────────────────────────────

@@ -210,8 +210,6 @@ class Installer:
 
     def _execute(self, plan_data: dict) -> None:
         selected = plan_data["selected"]
-        from .modules import UndoStack
-        import shutil as _shutil
         undo_stack = UndoStack()
 
         try:
@@ -241,7 +239,7 @@ class Installer:
                             if backups:
                                 bak = backups[0]
                                 undo_stack.push(f"恢复 {rel}/settings.json",
-                                                lambda s=settings, b=bak: _shutil.copy2(str(b), str(s)))
+                                                lambda s=settings, b=bak: shutil.copy2(str(b), str(s)))
                         else:
                             undo_stack.push(f"删除 {rel}/settings.json",
                                             lambda s=settings: s.unlink(missing_ok=True))
@@ -304,7 +302,7 @@ class Installer:
             for mod in self.modules:
                 if isinstance(mod, UserLevelModule):
                     # User-level: only run once (for claude or "全部")
-                    if not user_level_done and key in ("claude",) or choice == "5":
+                    if (not user_level_done and key == "claude") or choice == "5":
                         if self.dry_run:
                             ui.info(f"[dry-run] 将卸载 {mod.description}")
                         else:
@@ -324,7 +322,6 @@ class Installer:
         if not self.dry_run:
             log_action(target, "UNINSTALL", "all")
             print(f"\n{ui.green('卸载完成。')}")
-
     # ── Legacy migration ─────────────────────────────────────
 
     def _migrate_legacy(self, target: Path) -> None:
