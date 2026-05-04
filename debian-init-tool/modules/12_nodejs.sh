@@ -103,6 +103,9 @@ https://deb.nodesource.com/node_${node_version}.x nodistro main" \
 
         # 可选：配置 npm 全局模块路径（避免 sudo）
         configure_npm_global_prefix
+
+        # 可选：安装 pi-coding-agent
+        install_pi_coding_agent
     else
         draw_msgbox "错误" "Node.js 安装失败"
         return 1
