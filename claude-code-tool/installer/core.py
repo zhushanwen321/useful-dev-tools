@@ -1,5 +1,6 @@
 """Claude Code Tool Installer - main installer logic."""
 
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -7,7 +8,7 @@ from . import ui
 from .modules import (
     Module, UserLevelModule, SettingsModule,
     Action, SymlinkAction, BackupAction, MessageAction,
-    create_all_modules,
+    UndoStack, create_all_modules,
 )
 from .utils import backup_file, log_action
 
@@ -209,37 +210,63 @@ class Installer:
 
     def _execute(self, plan_data: dict) -> None:
         selected = plan_data["selected"]
+        from .modules import UndoStack
+        import shutil as _shutil
+        undo_stack = UndoStack()
 
-        for target, actions in plan_data["per_target"].items():
-            if not actions:
-                continue
-            rel = "~/" + str(target.relative_to(Path.home()))
-            print(f"\n--- 安装到 {rel} ---")
-            target.mkdir(parents=True, exist_ok=True)
-            backup_dir = target / "bak"
-
-            # Migrate legacy directory-level symlinks
-            self._migrate_legacy(target)
-
-            for mod in selected.values():
-                if isinstance(mod, UserLevelModule) or not mod.is_applicable(target):
+        try:
+            for target, actions in plan_data["per_target"].items():
+                if not actions:
                     continue
+                rel = "~/" + str(target.relative_to(Path.home()))
+                print(f"\n--- 安装到 {rel} ---")
+                target.mkdir(parents=True, exist_ok=True)
+                backup_dir = target / "bak"
 
-                if isinstance(mod, SettingsModule):
-                    settings = target / "settings.json"
-                    if settings.exists():
-                        backup_file(settings, backup_dir)
-                    mod.configure(target, self.script_dir)
-                else:
-                    mod.execute(actions, backup_dir)
+                self._migrate_legacy(target)
 
-        # User-level (once)
-        user_actions = plan_data["user_level"]
-        if user_actions:
-            for mod in selected.values():
-                if isinstance(mod, UserLevelModule):
-                    print(f"\n--- {mod.description} ---")
-                    mod.execute(user_actions, Path.home() / ".local" / "bak")
+                for mod in selected.values():
+                    if isinstance(mod, UserLevelModule) or not mod.is_applicable(target):
+                        continue
+
+                    if isinstance(mod, SettingsModule):
+                        settings = target / "settings.json"
+                        had_settings = settings.exists()
+                        if had_settings:
+                            backup_file(settings, backup_dir)
+                        mod.configure(target, self.script_dir)
+                        # Record undo for settings
+                        if had_settings:
+                            backups = sorted(backup_dir.glob("settings.json_*"), reverse=True)
+                            if backups:
+                                bak = backups[0]
+                                undo_stack.push(f"恢复 {rel}/settings.json",
+                                                lambda s=settings, b=bak: _shutil.copy2(str(b), str(s)))
+                        else:
+                            undo_stack.push(f"删除 {rel}/settings.json",
+                                            lambda s=settings: s.unlink(missing_ok=True))
+                    else:
+                        mod.execute(actions, backup_dir, undo_stack)
+
+            # User-level (once)
+            user_actions = plan_data["user_level"]
+            if user_actions:
+                for mod in selected.values():
+                    if isinstance(mod, UserLevelModule):
+                        print(f"\n--- {mod.description} ---")
+                        mod.execute(user_actions, Path.home() / ".local" / "bak", undo_stack)
+
+        except Exception as e:
+            ui.error(f"安装失败: {e}")
+            print(f"\n{ui.bold('=== 自动回滚 ===')}")
+            count = undo_stack.rollback()
+            if count > 0:
+                print(f"\n{ui.yellow(f'已回滚 {count} 个操作。')}")
+            else:
+                print("\n没有需要回滚的操作。")
+            raise
+
+        self._last_undo_stack = undo_stack
 
     # ── Uninstall ────────────────────────────────────────────
 

@@ -25,6 +25,33 @@ from .utils import (
 EXCLUDE_PATTERNS = {"__pycache__", ".DS_Store", ".git"}
 
 
+class UndoStack:
+    """Tracks completed operations and can reverse them on failure."""
+
+    def __init__(self):
+        self._items: list[tuple[str, callable]] = []  # [(desc, undo_fn), ...]
+
+    def push(self, description: str, undo_fn: callable) -> None:
+        self._items.append((description, undo_fn))
+
+    def rollback(self) -> int:
+        """Execute all undo actions in reverse. Returns count of undos executed."""
+        count = 0
+        for desc, undo_fn in reversed(self._items):
+            try:
+                undo_fn()
+                ui.info(f"  ↩ 回滚: {desc}")
+                count += 1
+            except Exception as e:
+                ui.warn(f"  ↩ 回滚失败: {desc} ({e})")
+        self._items.clear()
+        return count
+
+    @property
+    def count(self) -> int:
+        return len(self._items)
+
+
 # ── Actions (planned changes) ────────────────────────────────
 
 @dataclass
@@ -106,17 +133,22 @@ class Module(ABC):
     def plan(self, target_home: Path, script_dir: Path) -> list[Action]:
         ...
 
-    def execute(self, actions: list[Action], backup_dir: Path) -> None:
-        """Execute planned actions."""
+    def execute(self, actions: list[Action], backup_dir: Path,
+                    undo_stack: Optional['UndoStack'] = None) -> None:
+        """Execute planned actions. If undo_stack is provided, record undo ops."""
         for action in actions:
-            self._execute_one(action, backup_dir)
+            self._execute_one(action, backup_dir, undo_stack)
 
-    def _execute_one(self, action: Action, backup_dir: Path) -> None:
+    def _execute_one(self, action: Action, backup_dir: Path,
+                          undo_stack: Optional['UndoStack'] = None) -> None:
         if isinstance(action, SymlinkAction):
             if action.target.exists() and not action.target.is_symlink():
                 backup_file(action.target, backup_dir)
             create_symlink(action.source, action.target)
             ui.success(f"链接: {action.target.name}")
+            if undo_stack:
+                undo_stack.push(f"移除链接 {action.target.name}",
+                                lambda t=action.target: t.unlink())
 
         elif isinstance(action, BackupAction):
             backup_dir.mkdir(parents=True, exist_ok=True)
@@ -126,6 +158,9 @@ class Module(ABC):
             action.target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(action.source), str(action.target))
             ui.success(f"部署: {action.target}")
+            if undo_stack:
+                undo_stack.push(f"移除部署 {action.target.name}",
+                                lambda t=action.target: t.unlink(missing_ok=True))
 
         elif isinstance(action, GenerateFileAction):
             action.target.parent.mkdir(parents=True, exist_ok=True)
@@ -133,6 +168,9 @@ class Module(ABC):
             if action.executable:
                 action.target.chmod(0o755)
             ui.success(f"生成: {action.target}")
+            if undo_stack:
+                undo_stack.push(f"移除生成文件 {action.target.name}",
+                                lambda t=action.target: t.unlink(missing_ok=True))
 
         elif isinstance(action, PipInstallAction):
             ui.info(f"安装 {action.package}...")
@@ -144,6 +182,7 @@ class Module(ABC):
                 ui.success(f"{action.package} 安装完成")
             else:
                 ui.error(f"{action.package} 安装失败")
+                raise RuntimeError(f"pip install {action.package} failed")
 
         elif isinstance(action, ShellAction):
             result = subprocess.run(action.command, capture_output=True, text=True)
@@ -280,7 +319,8 @@ class SettingsModule(Module):
     def unconfigure(self, target_home: Path) -> None:
         ...
 
-    def execute(self, actions: list[Action], backup_dir: Path) -> None:
+    def execute(self, actions: list[Action], backup_dir: Path,
+                    undo_stack: Optional['UndoStack'] = None) -> None:
         pass  # Settings use configure(), not standard actions
 
     def uninstall(self, target_home: Path, script_dir: Path) -> None:
