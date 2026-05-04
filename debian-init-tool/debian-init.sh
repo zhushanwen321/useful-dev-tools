@@ -115,6 +115,7 @@ ${SCRIPT_NAME} v${VERSION}
     zsh         Zsh 配置
     docker      Docker 配置
     podman      Podman 配置
+    nodejs      Node.js / npm 配置
 
 示例:
     $(basename "$0")                    # 交互模式
@@ -240,7 +241,7 @@ run_module_cli() {
 run_auto_mode() {
     log_info "启动自动配置模式..."
 
-    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "docker" "podman")
+    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "docker" "podman" "nodejs")
 
     # 处理 --only 参数
     if [[ -n "$ONLY_MODULES" ]]; then
