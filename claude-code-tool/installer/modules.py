@@ -157,10 +157,11 @@ import sys  # needed for sys.executable in PipInstallAction handler
 
 class SymlinkModule(Module):
     """Creates symlinks from script_dir/<dir_name>/* into target_home/<dir_name>/*."""
-    dir_name: str = ""  # subdirectory name (e.g. "skills", "agents")
-
-    def is_applicable(self, target_home: Path) -> bool:
-        return True
+    def __init__(self, dir_name: str, description: str = "", risk: str = "low"):
+        self.dir_name = dir_name
+        self.name = dir_name
+        self.description = description or dir_name
+        self.risk = risk
 
     def _source_dir(self, script_dir: Path) -> Path:
         return script_dir / self.dir_name
@@ -204,7 +205,11 @@ class SymlinkModule(Module):
 
 class FileModule(Module):
     """Installs a single file as symlink (e.g. CLAUDE.md)."""
-    file_name: str = ""
+    def __init__(self, name: str, file_name: str, description: str = "", risk: str = "low"):
+        self.name = name
+        self.file_name = file_name
+        self.description = description or file_name
+        self.risk = risk
 
     def _source(self, script_dir: Path) -> Path:
         return script_dir / self.file_name
@@ -701,20 +706,14 @@ def create_all_modules() -> list[Module]:
     """Create all module instances."""
     return [
         # Symlink modules (per-target)
-        SymlinkModule.__class__(  # type: ignore
-            name="skills", description="Skills 技能集合",
-            dir_name="skills", risk="low",
-        ) if False else _make_symlink("skills", "Skills 技能集合", "low"),
-        _make_symlink("agents", "Agent 子代理", "low"),
-        _make_symlink("commands", "自定义命令", "low"),
-        _make_symlink("hooks", "Hook 脚本", "low"),
-        _make_symlink("custom-tools", "自定义工具", "low"),
+        SymlinkModule("skills", "Skills 技能集合", "low"),
+        SymlinkModule("agents", "Agent 子代理", "low"),
+        SymlinkModule("commands", "自定义命令", "low"),
+        SymlinkModule("hooks", "Hook 脚本", "low"),
+        SymlinkModule("custom-tools", "自定义工具", "low"),
 
         # File modules (per-target)
-        FileModule.__class__(  # type: ignore
-            name="claude-md", description="CLAUDE.md 全局配置",
-            file_name="CLAUDE.md", risk="medium",
-        ) if False else _make_file("claude-md", "CLAUDE.md 全局配置", "CLAUDE.md", "medium"),
+        FileModule("claude-md", "CLAUDE.md", "CLAUDE.md 全局配置", "medium"),
 
         # Settings modules (per-target)
         StatuslineModule(),
@@ -729,22 +728,3 @@ def create_all_modules() -> list[Module]:
         # User-level modules (run once)
         TavilyCliModule(),
     ]
-
-
-def _make_symlink(dir_name: str, description: str, risk: str) -> SymlinkModule:
-    """Create a SymlinkModule with custom attributes."""
-    mod = SymlinkModule()
-    mod.name = dir_name
-    mod.description = description
-    mod.dir_name = dir_name
-    mod.risk = risk
-    return mod
-
-def _make_file(name: str, description: str, file_name: str, risk: str) -> FileModule:
-    """Create a FileModule with custom attributes."""
-    mod = FileModule()
-    mod.name = name
-    mod.description = description
-    mod.file_name = file_name
-    mod.risk = risk
-    return mod
