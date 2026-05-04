@@ -96,7 +96,7 @@ PR 已更新!
 | `Error: gh CLI 未登录` | gh 未认证 | `gh auth login` |
 | `pull 失败` | push 被拒且 pull 有冲突 | 手动解决冲突后重试 |
 
-## AI 操作步骤
+## AI 操作步骤（重要：先验证，再推送 PR）
 
 1. 评估工作量：查看变更文件数和行数
    - 简单（<10 文件）：直接执行
@@ -105,5 +105,39 @@ PR 已更新!
 2. 检查变更内容，排除敏感信息
 3. 让用户提供 commit message，或使用 zcommit skill 自动生成
 4. `git add -A && git commit -m "<message>"`
-5. 运行脚本：`bash ~/.claude/skills/pr-worktree/pr-worktree.sh [--draft]`
-6. 确认输出包含 `"PR 已创建!"` 或 `"PR 已更新!"`
+5. **本地验证（push 前必须执行）**：
+
+   运行以下全部检查，**任何一项失败都必须修复后才能 push**：
+
+   ```bash
+   # 1. TypeScript 类型检查
+   npx vue-tsc --noEmit 2>&1 || npm run type-check 2>&1
+   # 如果失败 → 修复 → 重新检查直到通过
+
+   # 2. Lint 检查
+   npx eslint . --max-warnings 0 2>&1 || npm run lint 2>&1
+   # 如果失败 → 修复 → 重新检查直到通过
+
+   # 3. 单元测试
+   npm test 2>&1 || npx vitest run 2>&1
+   # 如果失败 → 修复 → 重新检查直到全部通过
+
+   # 4. 构建检查（可选）
+   npm run build 2>&1 || true
+   ```
+
+   **规则：**
+   - type-check 和 lint 必须 0 error 0 warning
+   - 测试必须全部通过
+   - 修复后重新运行确认通过，再继续
+
+6. 运行脚本创建 PR：
+   ```bash
+   bash ~/.claude/skills/pr-worktree/pr-worktree.sh [--draft]
+   ```
+7. 确认输出包含 `"PR 已创建!"` 或 `"PR 已更新!"`
+8. **（可选）检查 PR 的 CI 状态**：创建 PR 后，确认 Actions 已触发并初始状态正常
+   ```bash
+   gh pr view --json statusCheckRollup --jq '[.statusCheckRollup[] | .name + ": " + (.conclusion // "pending")] | .[]'
+   ```
+   如果有 check 立即失败（非 pending/queued），应分析原因并修复

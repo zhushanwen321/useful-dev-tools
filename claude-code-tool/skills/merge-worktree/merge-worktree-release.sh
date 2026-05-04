@@ -76,26 +76,49 @@ echo "PR: #$PR_NUMBER"
 # --- 读取发布配置 ---
 read_release_config
 
-# --- 步骤 1: 检查 CI ---
+# --- 步骤 1: 检查 CI（先验证，再 merge）---
 echo ""
-echo "=== 步骤 1: 检查 CI ==="
+echo "=== 步骤 1: 检查 CI（先验证，再 merge）==="
 if $SKIP_CI; then
-    echo "跳过 CI 检查 (--skip-ci)"
+    echo "⚠️  跳过 CI 检查 (--skip-ci)，仅限 AI 已人工确认 CI 通过时使用"
 else
-    CI_STATUS=$(gh pr view "$PR_NUMBER" --json statusCheckRollup --jq '[.statusCheckRollup[] | .conclusion] | unique | join(",")' 2>/dev/null || echo "unknown")
-    echo "CI 状态: $CI_STATUS"
+    # 获取 CI 状态——gh 失败直接退出，永不静默吞错误
+    CI_DATA=$(gh pr view "$PR_NUMBER" --json statusCheckRollup 2>&1) || {
+        echo "Error: 无法获取 CI 状态（gh CLI 失败）:"
+        echo "$CI_DATA"
+        exit 1
+    }
 
-    # 检查是否有失败
-    if echo "$CI_STATUS" | grep -qi "failure\|timed_out\|cancelled"; then
+    CI_CONCLUSIONS=$(echo "$CI_DATA" | jq -r '[.statusCheckRollup[] | .conclusion] | unique | join(",")')
+    echo "CI 状态: ${CI_CONCLUSIONS:-（无 CI 检查项）}"
+
+    # 场景 1：有检查项还在运行中 → 拒绝
+    if echo "$CI_CONCLUSIONS" | grep -qi "pending\|queued\|in_progress\|expected"; then
+        echo ""
+        echo "Error: CI 尚未全部完成（有 pending/queued/in_progress 的检查项）。"
+        echo "请等待 CI 全部完成后重试。"
+        echo ""
+        echo "仍在运行中的检查项:"
+        echo "$CI_DATA" | jq -r '.statusCheckRollup[] | select(.conclusion == null or .conclusion == "" or .conclusion == "pending" or .conclusion == "queued" or .conclusion == "in_progress" or .conclusion == "expected") | "  ⏳ \(.name) (\(.status // "unknown"))"'
+        exit 1
+    fi
+
+    # 场景 2：有检查项失败 → 拒绝
+    if echo "$CI_CONCLUSIONS" | grep -qi "failure\|timed_out\|cancelled\|action_required\|startup_failure"; then
         echo ""
         echo "Error: CI 有失败的检查项:"
-        gh pr view "$PR_NUMBER" --json statusCheckRollup --jq '.statusCheckRollup[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
+        echo "$CI_DATA" | jq -r '.statusCheckRollup[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled" or .conclusion == "action_required" or .conclusion == "startup_failure") | "  ❌ \(.name) (\(.conclusion))"'
         echo ""
         echo "请修复 CI 问题后重试，或使用 --skip-ci 跳过检查。"
         exit 1
     fi
 
-    echo "CI 检查通过。"
+    # 场景 3：无任何检查项
+    if [[ -z "$CI_CONCLUSIONS" ]]; then
+        echo "⚠️  未配置任何 CI 检查项，跳过远程 CI 验证。"
+    else
+        echo "✅ CI 检查全部通过。"
+    fi
 fi
 
 # --- 步骤 2: Merge --no-ff PR ---

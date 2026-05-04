@@ -42,7 +42,7 @@ merge-worktree-release.sh <pr-number-or-branch> [--version patch|minor|major] [-
 |------|----------|------|------|
 | `pr-number-or-branch` | $1 | 是 | PR 编号（数字）或分支名（如 `feat/new-feature`） |
 | `--version` | flag | 否 | 版本升级类型：`patch`（默认）/ `minor` / `major` / `prerelease` |
-| `--skip-ci` | flag | 否 | 跳过 CI 检查（已确认通过时使用） |
+| `--skip-ci` | flag | 否 | ⚠️ 仅限 AI 已人工确认 CI 全部通过时使用。**禁止随意跳过** |
 | `--skip-release` | flag | 否 | 跳过 GitHub Release 创建 |
 
 ### 用法示例
@@ -57,7 +57,7 @@ bash ~/.claude/skills/merge-worktree/merge-worktree-release.sh feat/new-feature
 # minor 版本升级
 bash ~/.claude/skills/merge-worktree/merge-worktree-release.sh 42 --version minor
 
-# CI 已确认通过，跳过检查
+# CI 已确认通过，跳过检查（仅限人工确认后）
 bash ~/.claude/skills/merge-worktree/merge-worktree-release.sh 42 --skip-ci
 
 # 只合并和升级版本，不创建 GitHub Release
@@ -68,7 +68,7 @@ bash ~/.claude/skills/merge-worktree/merge-worktree-release.sh 42 --skip-release
 
 | 步骤 | 操作 | 失败处理 |
 |------|------|---------|
-| 1. CI 检查 | `gh pr view --json statusCheckRollup` 检查所有检查项状态 | 有失败时报错退出，列出失败项 |
+| 1. CI 检查 | `gh pr view --json statusCheckRollup` 获取所有检查项结论。**拒绝 pending/queued（未完成）、拒绝 failure/cancelled/action_required（失败）**。`gh` 本身失败也报错退出 | 任何失败都报错退出，列出具体失败项。等待修复后重试 |
 | 2. Merge --no-ff | `git merge --no-ff` 保留完整分支历史 | — |
 | 3. 更新 main | 在 main worktree 中 `git pull`，无 worktree 时用 `git -C .bare branch -f main` | — |
 | 4. 版本升级 | 幂等检查：最新 commit 含 "bump version" 则跳过。否则 `npm version <type> --no-git-tag-version` | 非 npm 项目跳过 |
@@ -81,9 +81,9 @@ bash ~/.claude/skills/merge-worktree/merge-worktree-release.sh 42 --skip-release
 Workspace: /path/to/project-workspace
 PR: #42
 
-=== 步骤 1: 检查 CI ===
-CI 状态: SUCCESS, SKIPPED
-CI 检查通过。
+=== 步骤 1: 检查 CI（先验证，再 merge）===
+CI 状态: success
+✅ CI 检查全部通过。
 
 === 步骤 2: Merge --no-ff PR #42 ===
 标题: feat: add dark mode
@@ -117,6 +117,7 @@ Release 完成!
 
 | 输出 | 原因 | 解决 |
 |------|------|------|
+| `CI 尚未全部完成` | 有 pending/queued/in_progress 的检查项 | 等待 CI 完成后重试 |
 | `CI 有失败的检查项` | CI 未全部通过 | 修复 CI 问题后重试，或 `--skip-ci` 跳过 |
 | `找不到分支对应的 PR` | 分支名无对应 PR | 使用 PR 编号代替分支名 |
 | `gh CLI 未登录` | gh 未认证 | `gh auth login` |
@@ -239,28 +240,125 @@ gh release create vx.y.z --title "vx.y.z" --target main --notes "## vx.y.z"
 
 **关键**：第 4 步的 `gh release create` 不可省略，否则 CI 不会触发 npm publish。
 
-## AI 操作步骤
+## AI 操作步骤（重要：先验证，再 merge）
 
-### 阶段 0: 读取发布配置
+**核心原则：先验证，再 merge，绝不先 merge 再验证。** 每一步验证失败都必须修复后才能进入下一步。
 
-1. 从项目的 CLAUDE.md 中读取发布相关配置
-2. 确认 CI 触发模式（tag push vs release published）
-3. 据此调整 release 步骤（是否需要创建 GitHub Release）
+### 阶段 0: 读取 CLAUDE.md（必须首先执行）
 
-### 阶段 1: 收集上下文 + Release
+**在执行任何操作之前，必须先读取项目的 CLAUDE.md**，从中发现：
+1. **项目特定的合并/发布脚本路径**（如 `scripts/release.sh`）
+2. **版本与发布规则**（CI 触发模式、发布包路径等）
+3. **Workspace 结构**（bare repo + worktree 的目录布局）
+4. **项目测试/构建命令**（`npm test`、`npm run build` 等）
 
-1. 收集 PR 信息和分支改动摘要（用于后续冲突处理）
-2. 运行 release 脚本：
+读取逻辑：
+```
+1. 定位 CLAUDE.md：优先从 main worktree 目录，回退到当前 worktree 目录
+2. 搜索关键词：`合并与发布流程`、`release`、`npm publish`、`tag`、`scripts/`、`测试`、`构建`
+3. 根据发现的信息决定使用哪个脚本和什么策略
+```
+
+**脚本选择优先级：**
+1. **CLAUDE.md 中指定的项目脚本**（如 `scripts/release.sh`）— 优先使用
+2. **本 skill 自带的脚本**（`merge-worktree-release.sh`）— 仅在 CLAUDE.md 未指定时作为回退
+
+### 阶段 1: 本地验证（merge 前必须执行）
+
+**在运行任何 release 脚本之前，必须在 feature worktree 中执行完整的本地验证。** 这是防止 Actions 错误的第一个防线。
+
+执行以下全部检查，按失败优先级排序：
+
+```bash
+# 1. TypeScript 类型检查
+cd <feature-worktree>
+npx vue-tsc --noEmit 2>&1
+# 如果失败：修复类型错误，重新运行，直到通过
+
+# 2. Lint 检查
+npx eslint . --max-warnings 0 2>&1 || npm run lint 2>&1
+# 如果失败：修复 lint 错误，重新运行，直到通过
+
+# 3. 单元测试
+npm test 2>&1 || npx vitest run 2>&1
+# 如果失败：修复测试错误，重新运行，直到全部通过
+
+# 4. 构建检查
+npm run build 2>&1 || true  # 仅作为额外验证，不强阻塞
+```
+
+**规则：**
+- 任何一项检查失败 → **必须修复后才能继续**，不可跳过
+- 修复后重新运行该项检查，确认通过
+- 如果本地验证全部通过，才能进入阶段 2
+- **如果 fix 涉及代码变更，先 commit 再继续**
+
+### 阶段 2: 远程 CI 验证 + Release
+
+在本地验证通过的前提下，运行 release 脚本进行远程 CI 检查和合并。
+
+**如果 CLAUDE.md 指定了项目脚本**（如 `scripts/release.sh`）：
+```bash
+cd <feature-worktree>
+bash scripts/release.sh <patch|minor|major>
+```
+
+**如果没有项目脚本**，使用本 skill 自带脚本：
+```bash
+bash ~/.claude/skills/merge-worktree/merge-worktree-release.sh <pr-number>
+```
+
+脚本会执行：
+1. ✅ 远程 CI 检查（pending/queued → 拒绝，failure → 拒绝，全部通过才继续）
+2. ✅ Merge --no-ff 到 main
+3. ✅ 版本升级 + tag + release
+
+**如果脚本报错退出：**
+
+| 错误类型 | 处理方式 |
+|----------|---------|
+| `CI 尚未全部完成` | 等待 CI 跑完，不要跳过。如果等待时间过长，问用户是否下次再合并 |
+| `CI 有失败的检查项` | 见下方「CI 失败修复流程」 |
+| `Merge 冲突` | 手动解决冲突 → `git add . && git commit` → 重新运行脚本 |
+| `gh CLI 错误` | 检查网络和认证状态后重试 |
+
+#### CI 失败修复流程（结构化循环）
+
+当脚本因 CI 失败退出时：
+
+1. **分析失败原因**：查看脚本输出的失败项名称和结论
+   ```bash
+   gh pr view <pr-number> --json statusCheckRollup --jq \
+     '.statusCheckRollup[] | select(.conclusion == "failure") | {name, summary: .output.summary}'
+   ```
+
+2. **在本地修复**：根据 CI 失败信息修改代码
+
+3. **重新运行阶段 1**：本地验证必须重新全部执行，确认修复不引入新问题
+
+4. **提交并推送修复**
+   ```bash
+   git add -A && git commit -m "fix: <修复内容>" && git push
+   ```
+
+5. **重跑 release 脚本**：重新执行阶段 2
    ```bash
    bash ~/.claude/skills/merge-worktree/merge-worktree-release.sh <pr-number>
    ```
-3. 如果 CI 失败：
-   - 分析失败原因，判断复杂度
-   - 简单：直接修复 → push → 重跑脚本
-   - 中等：用 `code-fixer` subagent → push → 重跑脚本
-   - 复杂：先 `code-reviewer` 分析，再 `code-fixer` 修复
 
-### 阶段 2: Cleanup + Sync
+6. **最多重试 3 次**。如果 3 次后 CI 仍然失败：
+   - 向用户报告所有尝试和失败原因
+   - 询问用户是否需要手动介入
+   - **不得使用 `--skip-ci` 绕过**
+
+#### --skip-ci 使用约束
+
+`--skip-ci` 仅限以下场景使用：
+- AI 已亲眼确认 CI 上次运行时全部通过（例如刚看到一个绿色勾）
+- 由于 GitHub 临时问题 CI 状态未更新
+- **AI 不得自行决定跳过 CI 检查**，必须告知用户原因并获得确认
+
+### 阶段 3: Cleanup + Sync
 
 1. **先 cd 到 workspace 根目录**（避免后续删除当前工作目录导致 bash 失败）：
    ```bash
@@ -271,21 +369,9 @@ gh release create vx.y.z --title "vx.y.z" --target main --notes "## vx.y.z"
    bash ~/.claude/skills/merge-worktree/merge-worktree.sh <branch-name>
    ```
    脚本会先同步其他 worktree，最后才删除目标 worktree。
-2. 如果有 merge 冲突，收集冲突上下文并分派 `merge-conflict-resolver` agent：
+3. 如果有 merge 冲突，收集冲突上下文并分派 `merge-conflict-resolver` agent：
    - 冲突文件列表：`git diff --name-only --diff-filter=U`
    - 当前分支改动：`git log --oneline origin/main..HEAD`
    - main 改动：`git log --oneline HEAD..origin/main`
-3. 冲突解决后 `git add . && git commit`
-4. 输出完整报告
-
-### Subagent 使用
-
-| 子任务 | Agent | 使用条件 |
-|--------|-------|---------|
-| CI 失败分析 | `code-reviewer` | 失败原因不明 |
-| CI 失败修复 | `code-fixer` | 失败原因明确 |
-| Merge 冲突解决 | `merge-conflict-resolver` | 有冲突时 |
-
-每个 subagent 必须收到：当前分支改动摘要、main 改动摘要、冲突文件 diff、工作目录路径。
-
-**先斩后奏**：冲突难以判断时，agent 做出最佳选择并在报告中标注，由用户最终确认。
+4. 冲突解决后 `git add . && git commit`
+5. 输出完整报告
