@@ -553,16 +553,17 @@ show_module_checklist() {
 
   # 过滤出适用于目标平台的模块
   local APPLICABLE_INDICES=()
-  local IDX=0
+  local MOD_IDX=0
   local MODULE
   for MODULE in "${MODULES[@]+"${MODULES[@]}"}"; do
     local NAME
     NAME="$(parse_module_name "$MODULE")"
     if [ -n "$TARGET_HOME" ] && ! is_module_applicable "$NAME" "$TARGET_HOME"; then
+      ((MOD_IDX++)) || true
       continue
     fi
-    APPLICABLE_INDICES+=($IDX)
-    ((IDX++)) || true
+    APPLICABLE_INDICES+=($MOD_IDX)
+    ((MOD_IDX++)) || true
   done
   IDX=0
 
