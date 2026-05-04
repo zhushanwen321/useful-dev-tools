@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 from datetime import datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -104,3 +105,14 @@ def update_settings(settings_path: Path, updater: callable) -> bool:
     updater(data)
     save_json(settings_path, data)
     return True
+
+
+# ── Logging ─────────────────────────────────────────────────────
+
+def log_action(home_dir: Path, action: str, details: str) -> None:
+    """Append an action to the install log."""
+    log_file = home_dir / "bak" / "install.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_file, "a") as f:
+        f.write(f"[{ts}] {action}: {details}\n")

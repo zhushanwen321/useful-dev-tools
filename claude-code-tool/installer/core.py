@@ -9,7 +9,7 @@ from .modules import (
     Action, SymlinkAction, BackupAction, MessageAction,
     create_all_modules,
 )
-from .utils import backup_file
+from .utils import backup_file, log_action
 
 
 class Installer:
@@ -80,6 +80,19 @@ class Installer:
             return
 
         self._execute(plan_data)
+
+        # Rollback hints
+        backups = [a for a in plan_data["all_actions"] if isinstance(a, BackupAction)]
+        if backups:
+            print(f"\n{ui.dim('回滚指令 (如需撤销):')}")
+            for ba in backups:
+                orig_name = ba.original.name
+                print(ui.dim(f"  cp {ba.backup} {ba.original}"))
+
+        # Log
+        for target in selected_targets:
+            log_action(target, "INSTALL", ", ".join(selected_modules.keys()))
+
         print(f"\n{ui.green('安装完成。')}")
 
     def _select_targets(self) -> list[Path]:
@@ -205,6 +218,9 @@ class Installer:
             target.mkdir(parents=True, exist_ok=True)
             backup_dir = target / "bak"
 
+            # Migrate legacy directory-level symlinks
+            self._migrate_legacy(target)
+
             for mod in selected.values():
                 if isinstance(mod, UserLevelModule) or not mod.is_applicable(target):
                     continue
@@ -215,7 +231,6 @@ class Installer:
                         backup_file(settings, backup_dir)
                     mod.configure(target, self.script_dir)
                 else:
-                    # Only execute actions belonging to this module
                     mod.execute(actions, backup_dir)
 
         # User-level (once)
@@ -280,4 +295,29 @@ class Installer:
                     # SettingsModule.uninstall() already calls unconfigure()
 
         if not self.dry_run:
+            log_action(target, "UNINSTALL", "all")
             print(f"\n{ui.green('卸载完成。')}")
+
+    # ── Legacy migration ─────────────────────────────────────
+
+    def _migrate_legacy(self, target: Path) -> None:
+        """Migrate old directory-level symlinks to new per-item symlinks."""
+        from .utils import is_our_symlink
+        migrated = 0
+        for item_name in ("skills", "agents", "commands", "hooks", "custom-tools"):
+            item_path = target / item_name
+            if not item_path.is_symlink() or not item_path.is_dir():
+                continue
+            old_target = item_path.resolve()
+            source_dir = self.script_dir / item_name
+            if not source_dir.is_dir():
+                continue
+            ui.info(f"迁移老安装: {item_name} (目录级 symlink)")
+            item_path.unlink()
+            item_path.mkdir(parents=True, exist_ok=True)
+            for child in sorted(source_dir.iterdir()):
+                if child.exists() and child.name not in {"__pycache__", ".DS_Store", ".git"}:
+                    (item_path / child.name).symlink_to(child)
+            migrated += 1
+        if migrated:
+            ui.success(f"已迁移 {migrated} 个目录从老安装方式")

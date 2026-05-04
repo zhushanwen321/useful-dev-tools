@@ -18,8 +18,11 @@ from typing import Optional
 from . import ui
 from .utils import (
     backup_file, create_symlink, is_our_symlink, resolve_path,
-    cmd_exists, run_cmd, load_json, save_json,
+    cmd_exists, run_cmd, load_json, save_json, log_action,
 )
+
+# Directories/files to exclude from symlink scanning
+EXCLUDE_PATTERNS = {"__pycache__", ".DS_Store", ".git"}
 
 
 # ── Actions (planned changes) ────────────────────────────────
@@ -173,7 +176,8 @@ class SymlinkModule(Module):
         src = self._source_dir(script_dir)
         if not src.is_dir():
             return []
-        return sorted([p for p in src.iterdir() if p.exists()])
+        return sorted([p for p in src.iterdir()
+                       if p.exists() and p.name not in EXCLUDE_PATTERNS])
 
     def plan(self, target_home: Path, script_dir: Path) -> list[Action]:
         actions: list[Action] = []
@@ -232,6 +236,21 @@ class FileModule(Module):
                 original=target,
                 backup=target_home / "bak" / f"{self.file_name}_{ts}",
             ))
+            # Show diff for text files (like CLAUDE.md)
+            if target.is_file():
+                try:
+                    import difflib
+                    old_lines = target.read_text().splitlines(keepends=True)
+                    new_lines = src.read_text().splitlines(keepends=True)
+                    diff = list(difflib.unified_diff(old_lines, new_lines,
+                                                     fromfile=str(target), tofile=str(src)))
+                    if diff:
+                        actions.append(MessageAction(
+                            description=f"{self.file_name} 与已有版本有差异:"))
+                        for line in diff[:20]:  # limit to 20 lines
+                            actions.append(MessageAction(description=f"  {line.rstrip()}"))
+                except Exception:
+                    pass
         actions.append(SymlinkAction(
             description=self.file_name,
             source=src, target=target,
@@ -280,11 +299,14 @@ class StatuslineModule(SettingsModule):
         settings_path = target_home / "settings.json"
         command = f'"{target_home}/custom-tools/statusline.sh"'
 
-        data = load_json(settings_path)
-        current = data.get("statusLine", {}).get("command", "")
-        if current == command:
-            ui.info("statusline 已配置，跳过")
-            return True
+        if settings_path.exists():
+            data = load_json(settings_path)
+            current = data.get("statusLine", {}).get("command", "")
+            if current == command:
+                ui.info("statusline 已配置，跳过")
+                return True
+        else:
+            data = {}
 
         data["statusLine"] = {"type": "command", "command": command}
         save_json(settings_path, data)
@@ -293,6 +315,8 @@ class StatuslineModule(SettingsModule):
 
     def unconfigure(self, target_home: Path) -> None:
         settings_path = target_home / "settings.json"
+        if not settings_path.exists():
+            return
         data = load_json(settings_path)
         if "statusLine" in data:
             del data["statusLine"]
@@ -311,7 +335,10 @@ class SkillInjectModule(SettingsModule):
 
     def configure(self, target_home: Path, script_dir: Path) -> bool:
         settings_path = target_home / "settings.json"
-        data = load_json(settings_path)
+        if settings_path.exists():
+            data = load_json(settings_path)
+        else:
+            data = {}
 
         hooks = data.setdefault("hooks", {})
         pre_tool_use = hooks.setdefault("PreToolUse", [])
@@ -335,6 +362,8 @@ class SkillInjectModule(SettingsModule):
 
     def unconfigure(self, target_home: Path) -> None:
         settings_path = target_home / "settings.json"
+        if not settings_path.exists():
+            return
         data = load_json(settings_path)
         pre = data.get("hooks", {}).get("PreToolUse", [])
         pre = [e for e in pre
@@ -386,7 +415,7 @@ class KnowledgeEngineModule(SettingsModule):
         inject_cmd = f'bun "{cli_abs}" inject-index'
 
         settings_path = target_home / "settings.json"
-        data = load_json(settings_path)
+        data = load_json(settings_path) if settings_path.exists() else {}
         hooks = data.setdefault("hooks", {})
 
         post = [e for e in hooks.get("PostToolUse", [])
@@ -410,29 +439,90 @@ class KnowledgeEngineModule(SettingsModule):
         save_json(settings_path, data)
         ui.success("知识引擎 hooks 已配置")
 
+        # Crontab
+        self._setup_crontab(engine_dir)
+
+        return True
+
+    def _setup_crontab(self, engine_dir: Path) -> None:
         cron_script = engine_dir / "scripts" / "cron-maintenance.sh"
-        cron_entry = f"0 23 * * * {cron_script} >> ~/.claude/knowledge/maintenance.log 2>&1 # knowledge-engine-cron"
+        marker = "# knowledge-engine-cron"
+        cron_entry = f"0 23 * * * {cron_script} >> ~/.claude/knowledge/maintenance.log 2>&1 {marker}"
         try:
             result = run_cmd(["crontab", "-l"])
             existing = result.stdout if result.returncode == 0 else ""
-            lines = [l for l in existing.splitlines() if "knowledge-engine-cron" not in l]
+            lines = [l for l in existing.splitlines() if marker not in l]
             lines.append(cron_entry)
             subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True)
             ui.success("crontab 已配置 (每天 23:00)")
         except Exception:
             ui.warn("crontab 配置失败")
-        return True
 
     def unconfigure(self, target_home: Path) -> None:
         settings_path = target_home / "settings.json"
-        data = load_json(settings_path)
-        for hook_type in ("PostToolUse", "Stop", "SessionStart"):
-            entries = data.get("hooks", {}).get(hook_type, [])
-            entries = [e for e in entries if e.get("hooks")]
-            data.setdefault("hooks", {})[hook_type] = entries
-        save_json(settings_path, data)
-        ui.info("知识引擎 hooks 已移除")
+        if not settings_path.exists():
+            return
+
+        # Try precise removal by command pattern
+        engine_dir = None
+        for candidate in self._find_engine_dirs():
+            engine_dir = candidate
+            break
+
+        if engine_dir:
+            cli_path = engine_dir / "src" / "cli.ts"
+            if cli_path.exists():
+                cli_abs = cli_path.resolve()
+                cmds_to_remove = {
+                    f'bun "{cli_abs}" record',
+                    f'bun "{cli_abs}" process',
+                    f'bun "{cli_abs}" inject-index',
+                }
+                data = load_json(settings_path)
+                for hook_type in ("PostToolUse", "Stop", "SessionStart"):
+                    entries = data.get("hooks", {}).get(hook_type, [])
+                    cleaned = []
+                    for e in entries:
+                        hooks = e.get("hooks", [])
+                        hooks = [h for h in hooks if h.get("command") not in cmds_to_remove]
+                        if hooks:
+                            e["hooks"] = hooks
+                            cleaned.append(e)
+                    data.setdefault("hooks", {})[hook_type] = cleaned
+                save_json(settings_path, data)
+                ui.info("知识引擎 hooks 已精确移除")
+        else:
+            # Fallback: remove empty hook lists
+            data = load_json(settings_path)
+            for hook_type in ("PostToolUse", "Stop", "SessionStart"):
+                entries = data.get("hooks", {}).get(hook_type, [])
+                entries = [e for e in entries if e.get("hooks")]
+                data.setdefault("hooks", {})[hook_type] = entries
+            save_json(settings_path, data)
+            ui.info("知识引擎 hooks 已移除")
+
+        # Remove crontab
+        marker = "knowledge-engine-cron"
+        try:
+            result = run_cmd(["crontab", "-l"])
+            if result.returncode == 0 and marker in result.stdout:
+                lines = [l for l in result.stdout.splitlines() if marker not in l]
+                subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True)
+                ui.info("crontab 条目已移除")
+        except Exception:
+            pass
+
         ui.info("注意: 知识库数据未删除")
+
+    def _find_engine_dirs(self) -> list[Path]:
+        """Find possible knowledge-engine source dirs."""
+        candidates = []
+        # Check common locations
+        home = Path.home()
+        for p in [home / ".claude", home / ".opencode"]:
+            # Look for knowledge-engine in parent of .claude
+            pass
+        return candidates
 
 
 # ── Pi-specific modules ──────────────────────────────────────
@@ -451,7 +541,7 @@ class PiSkillsModule(Module):
             return []
         actions: list[Action] = []
         for child in sorted(src_dir.iterdir()):
-            if not child.exists():
+            if not child.exists() or child.name in EXCLUDE_PATTERNS:
                 continue
             target = target_home / "skills" / child.name
             if target.is_symlink() and is_our_symlink(target, child):
@@ -490,6 +580,8 @@ class PiAgentsModule(Module):
             return []
         actions: list[Action] = []
         for child in sorted(src_dir.iterdir()):
+            if child.name in EXCLUDE_PATTERNS:
+                continue
             agent_md = child / "agent.md"
             if not child.is_dir() or not agent_md.exists():
                 continue
