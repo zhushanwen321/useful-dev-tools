@@ -47,6 +47,17 @@ uninstall_nodejs() {
     log_info "清理完成"
 }
 
+# 查找普通用户（共享给 configure_npm_global_prefix 和 install_pi_coding_agent）
+_find_target_user() {
+    _NPM_TARGET_USER=""
+    while IFS=: read -r username _ uid _ _ _ _; do
+        if [[ $uid -ge 1000 ]] && [[ $uid -lt 65534 ]]; then
+            _NPM_TARGET_USER="$username"
+            break
+        fi
+    done < /etc/passwd
+}
+
 # 安装 Node.js
 install_nodejs() {
     # 选择版本
@@ -101,10 +112,13 @@ https://deb.nodesource.com/node_${node_version}.x nodistro main" \
         log_info "Node.js 安装成功: node ${node_v}, npm ${npm_v}"
         draw_msgbox "成功" "Node.js 安装完成！\n\nnode: ${node_v}\nnpm:  ${npm_v}"
 
+        # 查找普通用户（供后续两个函数共用）
+        _find_target_user
+
         # 可选：配置 npm 全局模块路径（避免 sudo）
         configure_npm_global_prefix
 
-        # 可选：安装 pi-coding-agent
+        # 可选：安装 pi-coding-agent（以用户身份执行，读到用户的 npm prefix）
         install_pi_coding_agent
     else
         draw_msgbox "错误" "Node.js 安装失败"
@@ -114,17 +128,9 @@ https://deb.nodesource.com/node_${node_version}.x nodistro main" \
 
 # 配置 npm 全局模块路径（可选，避免 npm install -g 需要 sudo）
 configure_npm_global_prefix() {
-    # 查找普通用户
-    local target_user=""
-    while IFS=: read -r username _ uid _ _ home _; do
-        if [[ $uid -ge 1000 ]] && [[ $uid -lt 65534 ]]; then
-            target_user="$username"
-            break
-        fi
-    done < /etc/passwd
+    [[ -z "${_NPM_TARGET_USER:-}" ]] && return 0
 
-    [[ -z "$target_user" ]] && return 0
-
+    local target_user="$_NPM_TARGET_USER"
     local home_dir
     home_dir=$(getent passwd "$target_user" | cut -d: -f6)
 
@@ -145,7 +151,7 @@ configure_npm_global_prefix() {
             echo "$npm_path_line" >> "$profile"
         fi
 
-        # 同步到 .zshrc (如果存在且使用了 oh-my-zsh)
+        # 同步到 .zshrc (如果存在)
         local zshrc="${home_dir}/.zshrc"
         if [[ -f "$zshrc" ]] && ! grep -qF '.npm-global/bin' "$zshrc"; then
             echo "" >> "$zshrc"
@@ -159,6 +165,23 @@ configure_npm_global_prefix() {
 
         log_info "npm 全局路径已配置: ${home_dir}/.npm-global"
         draw_msgbox "提示" "用户 ${target_user} 需重新登录后生效\n\n或执行: source ~/.profile"
+    fi
+}
+
+# 安装 pi coding agent（以目标用户身份执行，读取用户级 npm prefix）
+install_pi_coding_agent() {
+    if draw_yesno "安装 pi" "是否安装 pi coding agent？\n\nnpm install -g @mariozechner/pi-coding-agent"; then
+        if [[ -n "${_NPM_TARGET_USER:-}" ]]; then
+            # 以目标用户身份安装 → 读到用户级 prefix (~/.npm-global)，无需 sudo
+            su - "$_NPM_TARGET_USER" -c "npm install -g @mariozechner/pi-coding-agent"
+            local install_path
+            install_path=$(su - "$_NPM_TARGET_USER" -c "npm config get prefix" 2>/dev/null)
+            log_info "pi 已为用户 $_NPM_TARGET_USER 安装到 ${install_path}/lib/node_modules"
+        else
+            # 无普通用户，以 root 安装到系统路径
+            npm install -g @mariozechner/pi-coding-agent
+            log_info "pi 已安装到系统路径"
+        fi
     fi
 }
 
