@@ -1561,9 +1561,6 @@ new_handle_install() {
               ;;
           esac
           ;;
-        tavily-cli)
-          configure_tavily_cli
-          ;;
       esac
     done
   done
@@ -1573,6 +1570,11 @@ new_handle_install() {
     BACKUP_DIR="${TARGET_DIRS[$i]}/bak"
     execute_plan
   done
+
+  # 用户级工具（与 target 目录无关，只执行一次）
+  if is_module_selected "tavily-cli"; then
+    configure_tavily_cli
+  fi
 
   # 回滚提示
   if [ ${#PLAN_BACKUPS[@]} -gt 0 ]; then
