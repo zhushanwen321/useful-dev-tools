@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name timezone
+# @title 时区设置
+# @category system
+# @weight 3
 # 时区设置模块
 # 配置系统时区和 NTP 同步
 

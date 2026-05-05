@@ -1,4 +1,9 @@
 #!/bin/bash
+# @name nodejs
+# @title Node.js / npm 配置
+# @category dev-tools
+# @weight 40
+# @deps apt
 # Node.js / npm 配置模块
 # 通过 NodeSource PPA 安装指定版本的 Node.js (含 npm)
 

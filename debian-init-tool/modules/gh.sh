@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name gh
+# @title GitHub CLI 配置
+# @category base-tools
+# @weight 30
 # GitHub CLI (gh) 配置模块
 # 通过 GitHub 官方 APT 仓库安装 gh
 

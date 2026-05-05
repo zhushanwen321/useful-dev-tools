@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name locale
+# @title Locale 设置
+# @category system
+# @weight 2
 # Locale 设置模块
 # 配置系统区域和语言设置
 

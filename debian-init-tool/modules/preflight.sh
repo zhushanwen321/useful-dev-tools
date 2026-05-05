@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name preflight
+# @title 前置检查
+# @category system
+# @weight 0
 # 前置检查模块
 # 执行系统环境检查和初始化
 

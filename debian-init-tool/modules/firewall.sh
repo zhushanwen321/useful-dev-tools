@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name firewall
+# @title 防火墙配置
+# @category system
+# @weight 5
 # 防火墙配置模块
 # 配置 UFW 或 nftables 防火墙
 

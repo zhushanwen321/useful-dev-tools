@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name ssh
+# @title SSH 配置
+# @category system
+# @weight 4
 # SSH 配置模块
 # 配置 SSH 服务器安全选项
 

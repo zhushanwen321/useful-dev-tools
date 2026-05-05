@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name docker
+# @title Docker 配置
+# @category base-tools
+# @weight 20
 # Docker 配置模块
 # 安装和配置 Docker 及 Docker Compose
 

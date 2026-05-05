@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name zsh
+# @title Zsh 配置
+# @category base-tools
+# @weight 11
 # Zsh 配置模块
 # 安装和配置 Zsh、Oh My Zsh 和插件
 # 通用配置（proxy/aliases/env）由 ~/.shell/ 共享目录提供

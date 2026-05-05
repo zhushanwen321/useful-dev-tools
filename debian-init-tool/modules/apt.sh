@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name apt
+# @title APT 源配置
+# @category system
+# @weight 1
 # APT 源配置模块
 # 配置 Debian APT 软件源
 
