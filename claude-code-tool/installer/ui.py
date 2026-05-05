@@ -32,7 +32,8 @@ def choose(prompt: str, options: list[tuple[str, str]]) -> Optional[str]:
     
     options: [(key, label), ...]
     """
-    print(f"\n{prompt}\n")
+    if prompt:
+        print(f"\n{bold(prompt)}\n")
     for i, (_, label) in enumerate(options, 1):
         print(f"  {i}) {label}")
     print()

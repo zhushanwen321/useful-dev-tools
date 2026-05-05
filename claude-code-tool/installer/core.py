@@ -32,15 +32,10 @@ class Installer:
         """Main menu loop."""
         while True:
             mode = " (dry-run)" if self.dry_run else ""
-            print(f"\n{ui.bold(f'=== Claude Code Tool 管理脚本{mode} ===')}\n")
-            print("请选择操作:")
-            print("  1) 安装")
-            print("  2) 卸载")
-            print("  3) 退出\n")
-
-            choice = ui.choose("", [
-                ("1", "安装"), ("2", "卸载"), ("3", "退出"),
-            ])
+            choice = ui.choose(
+                f"=== Claude Code Tool 管理脚本{mode} ===\n请选择操作:",
+                [("1", "安装"), ("2", "卸载"), ("3", "退出")],
+            )
             if choice == "1":
                 self._install_flow()
             elif choice == "2":
