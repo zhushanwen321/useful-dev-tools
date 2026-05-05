@@ -123,7 +123,9 @@ def plan_file(source: Path, target: Path, backup_dir: Path) -> list[Action]:
 
 def execute_action(action, backup_dir: Path, undo_stack: Optional[UndoStack] = None) -> None:
     if isinstance(action, SymlinkAction):
+        # backup 已由 BackupAction 在 plan 阶段处理，这里只做链接
         if action.target.exists() and not action.target.is_symlink():
+            backup_dir.mkdir(parents=True, exist_ok=True)
             backup_file(action.target, backup_dir)
         create_symlink(action.source, action.target)
         ui.success(f"链接: {action.target.name}")
@@ -178,7 +180,10 @@ def snapshot_settings(target: Path, backup_dir: Path) -> Optional[dict]:
     settings = target / "settings.json"
     if settings.exists():
         data = load_json(settings)
-        backup_file(settings, backup_dir)
+        # 用 copy 而非 move，保留原文件供后续 handler 读取
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        shutil.copy2(str(settings), str(backup_dir / f"settings.json_{ts}"))
         return json.loads(json.dumps(data))
     return None
 

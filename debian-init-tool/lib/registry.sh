@@ -20,11 +20,19 @@ declare -A _R_FILE=()
 
 # === 发现入口 ===
 load_and_discover_modules() {
+    # 清空旧注册表（支持重复调用）
+    _REG=()
+    _R_TITLE=()
+    _R_WEIGHT=()
+    _R_CATEGORY=()
+    _R_DEPS=()
+    _R_FILE=()
+
     local modules_dir="${SCRIPT_DIR}/modules"
     for f in "${modules_dir}"/*.sh; do
         [[ -f "$f" ]] || continue
-        source "$f" || log_warn "无法加载模块: $f"
-        _parse_meta "$f"
+        source "$f" || { log_warn "无法加载模块: $f"; continue; }
+        _parse_meta "$f" || { log_warn "模块 $f 缺少 @name 元数据"; continue; }
     done
     _topo_sort
     log_info "已发现 ${#_REG[@]} 个模块"
@@ -71,6 +79,7 @@ _topo_sort() {
     local changed=1
     while [[ $changed -eq 1 ]]; do
         changed=0
+        local prev_count=${#remaining[@]}
         local next_round=()
         for name in "${remaining[@]}"; do
             local deps="${_R_DEPS[$name]:-}"
@@ -90,7 +99,8 @@ _topo_sort() {
             fi
         done
         remaining=("${next_round[@]+"${next_round[@]}"}")
-        [[ ${#remaining[@]} -eq ${#next_round[@]} ]] && break
+        # 无进展 → 检测循环依赖，退出
+        [[ ${#remaining[@]} -eq $prev_count ]] && break
     done
     _REG=("${sorted[@]}" "${remaining[@]+"${remaining[@]}"}")
 }

@@ -1,5 +1,6 @@
 """Claude Code Tool Installer — main installer logic."""
 
+import json
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -11,7 +12,26 @@ from .engine import (
     execute_actions, snapshot_settings, restore_or_delete_settings,
 )
 from .registry import discover_all, ModuleInfo
-from .utils import backup_file, is_our_symlink, log_action
+from .utils import backup_file, is_our_symlink, load_json, save_json, log_action
+
+
+def _action_belongs(action, mod_name: str) -> bool:
+    """Check if an action belongs to a module by name.
+
+    Uses exact match for file-type actions (description == mod_name)
+    and dir-name prefix match for symlink-type actions ("dirname/file").
+    Avoids startswith prefix collision (hook vs hooks).
+    """
+    desc = action.description
+    # Exact match (file modules: description = "CLAUDE")
+    if desc == mod_name:
+        return True
+    # Dir prefix: "dirname/file" → check dirname part
+    if "/" in desc:
+        dir_part = desc.split("/", 1)[0]
+        return dir_part == mod_name
+    # Backup descriptions: "备份 xxx" → no match
+    return False
 
 
 class Installer:
@@ -201,6 +221,9 @@ class Installer:
                 self._migrate_legacy(target, undo_stack)
 
                 snap = snapshot_settings(target, backup_dir)
+                # 记录 settings 初始状态用于回滚
+                settings_json = target / "settings.json"
+                settings_before_configure = json.dumps(load_json(settings_json)) if settings_json.exists() else None
 
                 for mod in selected:
                     if mod.is_user_level:
@@ -211,10 +234,20 @@ class Installer:
                     if mod.module_type in ("symlink", "file"):
                         mod_acts = [a for a in target_actions
                                     if isinstance(a, (SymlinkAction, BackupAction))
-                                    and a.description.startswith(mod.name)]
+                                    and _action_belongs(a, mod.name)]
                         execute_actions(mod_acts, backup_dir, undo_stack)
                     elif mod.module_type == "handler":
-                        mod.handler.configure(target, self.script_dir)
+                        # 快照 handler 前的 settings
+                        _snap_before = json.dumps(load_json(settings_json)) if settings_json.exists() else None
+                        if not mod.handler.configure(target, self.script_dir):
+                            ui.warn(f"{mod.title} 配置未完成")
+                        # 记录 handler 对 settings 的修改用于回滚
+                        if _snap_before is not None:
+                            undo_stack.push(f"回滚 {mod.title} settings 修改",
+                                            lambda s=settings_json, d=_snap_before: save_json(s, json.loads(d)))
+                        elif settings_json.exists():
+                            undo_stack.push(f"删除 {mod.title} 创建的 settings",
+                                            lambda s=settings_json: s.unlink(missing_ok=True))
 
                 restore_or_delete_settings(target, snap, undo_stack)
 
@@ -294,6 +327,11 @@ class Installer:
                 if dest.is_symlink() and is_our_symlink(dest, child):
                     dest.unlink()
                     ui.info(f"移除: {dest.name}")
+        elif mod.module_type == "file" and mod.source and mod.source.is_file():
+            dest = target / mod.source.name
+            if dest.is_symlink() and is_our_symlink(dest, mod.source):
+                dest.unlink()
+                ui.info(f"移除: {dest.name}")
 
     # ── Legacy migration ─────────────────────────────────────
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from installer import ui
 from installer.utils import run_cmd
-from installer.engine import DeployFileAction, GenerateFileAction, PipInstallAction, execute_actions
+from installer.engine import DeployFileAction, GenerateFileAction, PipInstallAction, UndoStack, execute_actions
 
 TITLE = "Tavily CLI 工具 (search/extract/crawl)"
 RISK = "low"
@@ -63,7 +63,13 @@ def configure(target: Path, script_dir: Path) -> bool:
     if result.returncode != 0:
         actions.append(PipInstallAction(description="安装 httpx", package="httpx"))
 
-    execute_actions(actions, Path.home() / ".local" / "bak")
+    undo = UndoStack()
+    try:
+        execute_actions(actions, Path.home() / ".local" / "bak", undo)
+    except Exception:
+        ui.error("Tavily CLI 安装失败，回滚...")
+        undo.rollback()
+        return False
     return True
 
 

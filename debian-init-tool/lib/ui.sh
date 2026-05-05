@@ -377,8 +377,27 @@ draw_category_menu() {
     choices=$(draw_checklist "$cat_title" "选择要配置的模块 (空格选择，回车确认):" "${options[@]}")
     [[ $? -ne 0 ]] && return
 
-    # 依次执行选中的模块
-    for name in $choices; do
+    # 依赖解析：自动补齐选中模块的依赖
+    local -a resolved=()
+    resolve_deps_for_modules resolved $choices
+
+    # 依次执行（含自动补齐的依赖）
+    local added=("${resolved[@]}")
+    for orig in $choices; do
+        _in_array "$orig" "${added[@]}" || added+=("$orig")
+    done
+    # 检查是否有自动补齐的依赖
+    local extra=()
+    for name in "${resolved[@]}"; do
+        if ! _in_array "$name" $choices; then
+            extra+=("$name")
+        fi
+    done
+    if [[ ${#extra[@]} -gt 0 ]]; then
+        draw_msgbox "依赖提示" "以下依赖模块将自动加入: ${extra[*]}"
+    fi
+
+    for name in "${resolved[@]}"; do
         run_module "$name"
     done
 }
