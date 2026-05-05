@@ -61,7 +61,13 @@ _in_array() {
 
 _topo_sort() {
     local sorted=()
-    local remaining=("${!_R_WEIGHT[@]}")
+    # Initialize remaining sorted by weight
+    local remaining=()
+    local _sorted_names
+    _sorted_names=$(for n in "${!_R_WEIGHT[@]}"; do echo "${_R_WEIGHT[$n]} $n"; done | sort -n | cut -d' ' -f2)
+    while IFS= read -r name; do
+        remaining+=("$name")
+    done <<< "$_sorted_names"
     local changed=1
     while [[ $changed -eq 1 ]]; do
         changed=0
@@ -119,30 +125,29 @@ count_completed_in_category() {
 }
 
 resolve_deps_for_modules() {
-    local -n _result="$1"
+    local -n _result_ref="$1"
     shift
     local requested=("$@")
-    local result_map=()
+    _DEPS_RESULT_MAP=()
     for name in "${requested[@]}"; do
-        _add_with_deps "$name" result_map
+        _add_with_deps "$name"
     done
     for name in "${_REG[@]}"; do
-        if _in_array "$name" "${result_map[@]+"${result_map[@]}"}"; then
-            _result+=("$name")
+        if _in_array "$name" "${_DEPS_RESULT_MAP[@]+"${_DEPS_RESULT_MAP[@]}"}"; then
+            _result_ref+=("$name")
         fi
     done
 }
 
 _add_with_deps() {
     local name="$1"
-    local -n _map="$2"
-    _in_array "$name" "${_map[@]+"${_map[@]}"}" && return
+    _in_array "$name" "${_DEPS_RESULT_MAP[@]+"${_DEPS_RESULT_MAP[@]}"}" && return
     local deps="${_R_DEPS[$name]:-}"
     for dep in ${deps//,/ }; do
         [[ -z "$dep" ]] && continue
-        _add_with_deps "$dep" _map
+        _add_with_deps "$dep"
     done
-    _map+=("$name")
+    _DEPS_RESULT_MAP+=("$name")
 }
 
 _REGISTRY_SH_LOADED=true
