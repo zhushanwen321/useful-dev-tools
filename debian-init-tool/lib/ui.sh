@@ -299,36 +299,29 @@ draw_fileselect() {
     fi
 }
 
-# 主菜单
 draw_main_menu() {
     local title="Debian 系统初始化配置工具"
 
     while true; do
-        local options=(
-            "preflight" "$(get_module_status preflight) 前置检查"
-            "apt"       "$(get_module_status apt) APT 源配置"
-            "locale"    "$(get_module_status locale) Locale 设置"
-            "timezone"  "$(get_module_status timezone) 时区设置"
-            "ssh"       "$(get_module_status ssh) SSH 配置"
-            "firewall"  "$(get_module_status firewall) 防火墙配置"
-            "fail2ban"  "$(get_module_status fail2ban) Fail2ban 配置"
-            "user"      "$(get_module_status user) 用户管理"
-            "bash"      "$(get_module_status bash) Bash 配置"
-            "zsh"       "$(get_module_status zsh) Zsh 配置"
-            "fish"      "$(get_module_status fish) Fish 配置"
-            "docker"    "$(get_module_status docker) Docker 配置"
-            "podman"    "$(get_module_status podman) Podman 配置"
-            "nodejs"    "$(get_module_status nodejs) Node.js / npm"
-            "gh"        "$(get_module_status gh) GitHub CLI"
-            "pi"        "$(get_module_status pi) pi coding agent"
-            "all"       "一键配置所有模块"
-            "backup"    "查看/恢复备份"
-            "log"       "查看日志"
-            "exit"      "退出"
-        )
+        local options=()
+
+        # 动态生成分类菜单
+        for cat in "${CATEGORIES[@]}"; do
+            local cat_title="${CATEGORY_TITLES[$cat]}"
+            local done=$(count_completed_in_category "$cat")
+            local total=$(count_in_category "$cat")
+            local status="  "
+            [[ "$done" -eq "$total" ]] && [[ "$total" -gt 0 ]] && status="✓"
+            options+=("$cat" "${status} ${cat_title} (${done}/${total})")
+        done
+
+        options+=("all" "一键配置所有")
+        options+=("backup" "查看/恢复备份")
+        options+=("log" "查看日志")
+        options+=("exit" "退出")
 
         local choice
-        choice=$(draw_menu "$title" "选择要配置的模块:" "${options[@]}")
+        choice=$(draw_menu "$title" "选择要配置的类别:" "${options[@]}")
 
         case $? in
             0)
@@ -337,7 +330,7 @@ draw_main_menu() {
                         return 0
                         ;;
                     all)
-                        run_all_modules
+                        draw_run_all_menu
                         ;;
                     backup)
                         show_backup_menu
@@ -346,7 +339,7 @@ draw_main_menu() {
                         show_log_viewer
                         ;;
                     *)
-                        run_module "$choice"
+                        draw_category_menu "$choice"
                         ;;
                 esac
                 ;;
@@ -357,66 +350,108 @@ draw_main_menu() {
     done
 }
 
+# 显示分类下的二级菜单
+draw_category_menu() {
+    local category="$1"
+    local cat_title="${CATEGORY_TITLES[$category]}"
+
+    # 收集该分类下的模块
+    local modules=()
+    for name in "${_REG[@]}"; do
+        [[ "${_R_CATEGORY[$name]}" == "$category" ]] && modules+=("$name")
+    done
+
+    [[ ${#modules[@]} -eq 0 ]] && { draw_msgbox "$cat_title" "该分类下没有模块"; return; }
+
+    # 生成 checklist
+    local options=()
+    for name in "${modules[@]}"; do
+        local status="OFF"
+        is_completed "$name" && status="ON"
+        # 基础功能默认全选
+        [[ "$category" == "system" ]] && status="ON"
+        options+=("$name" "${_R_TITLE[$name]}" "$status")
+    done
+
+    local choices
+    choices=$(draw_checklist "$cat_title" "选择要配置的模块 (空格选择，回车确认):" "${options[@]}")
+    [[ $? -ne 0 ]] && return
+
+    # 依赖解析：自动补齐选中模块的依赖
+    local -a resolved=()
+    resolve_deps_for_modules resolved $choices
+
+    # 依次执行（含自动补齐的依赖）
+    local added=("${resolved[@]}")
+    for orig in $choices; do
+        _in_array "$orig" "${added[@]}" || added+=("$orig")
+    done
+    # 检查是否有自动补齐的依赖
+    local extra=()
+    for name in "${resolved[@]}"; do
+        if ! _in_array "$name" $choices; then
+            extra+=("$name")
+        fi
+    done
+    if [[ ${#extra[@]} -gt 0 ]]; then
+        draw_msgbox "依赖提示" "以下依赖模块将自动加入: ${extra[*]}"
+    fi
+
+    for name in "${resolved[@]}"; do
+        run_module "$name"
+    done
+}
+
 # 运行单个模块 (交互模式)
 run_module() {
     local module
     module=$(strip_ansi "$1")
-    local module_file="${_UI_SCRIPT_DIR}/../modules/$(printf '%02d' $(get_module_index "$module"))_${module}.sh"
+    local file="${_R_FILE[$module]}"
 
-    if [[ -f "$module_file" ]]; then
-        log_info "开始执行模块: $module"
-        if source "$module_file" && configure_"$module"; then
-            mark_completed "$module"
-            # 调用持久化标记 (如果函数存在)
-            if declare -f mark_module_completed &>/dev/null; then
-                mark_module_completed "$module"
-            fi
-            draw_msgbox "成功" "模块 $module 配置完成"
-        else
-            draw_msgbox "错误" "模块 $module 配置失败，请查看日志"
+    if [[ -z "$file" ]] || [[ ! -f "$file" ]]; then
+        draw_msgbox "错误" "找不到模块: $module"
+        return 1
+    fi
+
+    local title="${_R_TITLE[$module]:-$module}"
+    log_info "开始执行模块: $module"
+
+    if configure_"$module"; then
+        mark_completed "$module"
+        if declare -f mark_module_completed &>/dev/null; then
+            mark_module_completed "$module"
         fi
+        draw_msgbox "成功" "${title} 配置完成"
     else
-        draw_msgbox "错误" "找不到模块文件: $module_file"
+        draw_msgbox "错误" "${title} 配置失败，请查看日志"
     fi
 }
 
-# 获取模块索引
-get_module_index() {
-    local module="$1"
-    case "$module" in
-        preflight) echo 0 ;;
-        apt) echo 1 ;;
-        locale) echo 2 ;;
-        timezone) echo 3 ;;
-        ssh) echo 4 ;;
-        firewall) echo 5 ;;
-        fail2ban) echo 6 ;;
-        user) echo 7 ;;
-        bash) echo 8 ;;
-        zsh) echo 9 ;;
-        fish) echo 10 ;;
-        docker) echo 11 ;;
-        podman) echo 12 ;;
-        nodejs) echo 13 ;;
-        gh) echo 14 ;;
-        pi) echo 15 ;;
-        *) echo 99 ;;
-    esac
-}
 
-# 运行所有模块
-run_all_modules() {
-    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "fish" "docker" "podman" "nodejs" "gh" "pi")
-    local total=${#modules[@]}
+
+# 一键配置 — 弹出全模块 checklist 让用户确认
+draw_run_all_menu() {
+    local options=()
+    for name in "${_REG[@]}"; do
+        local status="OFF"
+        is_completed "$name" && status="ON"
+        options+=("$name" "${_R_TITLE[$name]}" "$status")
+    done
+
+    local choices
+    choices=$(draw_checklist "一键配置" "选择要配置的模块 (空格选择，回车确认):" "${options[@]}")
+    [[ $? -ne 0 ]] && return
+
+    local total=$(echo "$choices" | wc -w)
     local current=0
     local failed=()
 
-    for module in "${modules[@]}"; do
+    for name in $choices; do
         ((current++))
-        show_gauge "一键配置" "正在配置: $module ($current/$total)" $((current * 100 / total))
+        show_gauge "一键配置" "正在配置: ${_R_TITLE[$name]} ($current/$total)" $((current * 100 / total))
 
-        if ! run_module_silent "$module"; then
-            failed+=("$module")
+        if ! run_module_silent "$name"; then
+            failed+=("$name")
         fi
     done
 
@@ -431,13 +466,15 @@ run_all_modules() {
 run_module_silent() {
     local module
     module=$(strip_ansi "$1")
-    local module_file="${_UI_SCRIPT_DIR}/../modules/$(printf '%02d' $(get_module_index "$module"))_${module}.sh"
+    local file="${_R_FILE[$module]}"
 
-    if [[ -f "$module_file" ]]; then
-        if source "$module_file" && configure_"$module"; then
-            mark_completed "$module"
-            return 0
-        fi
+    if [[ -z "$file" ]] || [[ ! -f "$file" ]]; then
+        return 1
+    fi
+
+    if configure_"$module"; then
+        mark_completed "$module"
+        return 0
     fi
     return 1
 }

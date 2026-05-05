@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name bash
+# @title Bash 配置
+# @category base-tools
+# @weight 10
 # Bash 配置模块
 # 配置 Bash Shell 环境
 # 通用配置（proxy/aliases/env）由 ~/.shell/ 共享目录提供

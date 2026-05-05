@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name user
+# @title 用户管理
+# @category system
+# @weight 7
 # 用户管理模块
 # 创建和配置用户账户
 

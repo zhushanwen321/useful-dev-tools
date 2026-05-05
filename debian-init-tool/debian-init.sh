@@ -77,6 +77,7 @@ source "${SCRIPT_DIR}/lib/common.sh" || { echo "无法加载公共模块"; exit 
 source "${SCRIPT_DIR}/lib/ui.sh" || { echo "无法加载界面模块"; exit 1; }
 source "${SCRIPT_DIR}/lib/network.sh" || { echo "无法加载网络模块"; exit 1; }
 source "${SCRIPT_DIR}/lib/backup.sh" || { echo "无法加载备份模块"; exit 1; }
+source "${SCRIPT_DIR}/lib/registry.sh" || { echo "无法加载注册表模块"; exit 1; }
 
 # 加载默认配置
 if [[ -f "${SCRIPT_DIR}/config/defaults.conf" ]]; then
@@ -102,22 +103,10 @@ ${SCRIPT_NAME} v${VERSION}
     --dry-run           模拟运行 (不实际执行)
     --debug             启用调试模式
 
-模块列表:
-    preflight   前置检查
-    apt         APT 源配置
-    locale      Locale 设置
-    timezone    时区设置
-    ssh         SSH 配置
-    firewall    防火墙配置
-    fail2ban    Fail2ban 配置
-    user        用户管理
-    bash        Bash 配置
-    zsh         Zsh 配置
-    docker      Docker 配置
-    podman      Podman 配置
-    nodejs      Node.js / npm 配置
-    gh          GitHub CLI 配置
-    pi          pi coding agent 配置
+模块分类:
+    基础功能: preflight, apt, locale, timezone, ssh, firewall, fail2ban, user
+    基础工具: bash, zsh, fish, docker, podman, gh, pi
+    编程工具: nodejs
 
 示例:
     $(basename "$0")                    # 交互模式
@@ -198,17 +187,6 @@ parse_args() {
     done
 }
 
-# 加载模块
-load_modules() {
-    local modules_dir="${SCRIPT_DIR}/modules"
-
-    for module_file in "${modules_dir}"/*.sh; do
-        if [[ -f "$module_file" ]]; then
-            source "$module_file" || log_warn "无法加载模块: $module_file"
-        fi
-    done
-}
-
 # 运行指定模块 (命令行/自动模式)
 run_module_cli() {
     local module="$1"
@@ -243,15 +221,19 @@ run_module_cli() {
 run_auto_mode() {
     log_info "启动自动配置模式..."
 
-    local modules=("preflight" "apt" "locale" "timezone" "ssh" "firewall" "fail2ban" "user" "bash" "zsh" "fish" "docker" "podman" "nodejs" "gh" "pi")
+    local modules=()
+    local skip_array=()
 
-    # 处理 --only 参数
+    # 处理 --only 参数（带依赖解析）
     if [[ -n "$ONLY_MODULES" ]]; then
-        IFS=',' read -ra modules <<< "$ONLY_MODULES"
+        local -a only_names=()
+        IFS=',' read -ra only_names <<< "$ONLY_MODULES"
+        resolve_deps_for_modules modules "${only_names[@]}"
+    else
+        modules=("${_REG[@]}")
     fi
 
     # 处理 --skip 参数
-    local skip_array=()
     if [[ -n "$SKIP_MODULES" ]]; then
         IFS=',' read -ra skip_array <<< "$SKIP_MODULES"
     fi
@@ -264,10 +246,7 @@ run_auto_mode() {
         # 检查是否跳过
         local skip=false
         for skip_module in "${skip_array[@]}"; do
-            if [[ "$module" == "$skip_module" ]]; then
-                skip=true
-                break
-            fi
+            [[ "$module" == "$skip_module" ]] && skip=true && break
         done
 
         if $skip; then
@@ -405,7 +384,7 @@ main() {
     fi
 
     # 加载模块
-    load_modules
+    load_and_discover_modules
 
     # 列出备份模式
     if $LIST_BACKUPS; then

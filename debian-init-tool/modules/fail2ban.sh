@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name fail2ban
+# @title Fail2ban 配置
+# @category system
+# @weight 6
 # Fail2ban 配置模块
 # 配置 Fail2ban 防止暴力破解
 

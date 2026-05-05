@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name podman
+# @title Podman 配置
+# @category base-tools
+# @weight 21
 # Podman 配置模块
 # 安装和配置 Podman 容器工具
 

@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name pi
+# @title pi coding agent 配置
+# @category base-tools
+# @weight 31
 # pi coding agent 配置模块
 # 安装 @mariozechner/pi-coding-agent
 

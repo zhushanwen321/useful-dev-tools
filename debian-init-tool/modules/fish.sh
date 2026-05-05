@@ -1,4 +1,8 @@
 #!/bin/bash
+# @name fish
+# @title Fish Shell 配置
+# @category base-tools
+# @weight 12
 # Fish Shell 配置模块
 # 安装和配置 Fish Shell
 # 通用配置（proxy/aliases/env）通过 ~/.config/fish/conf.d/ 共享
