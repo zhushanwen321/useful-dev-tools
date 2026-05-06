@@ -107,29 +107,45 @@ PR 已更新!
 4. `git add -A && git commit -m "<message>"`
 5. **本地验证（push 前必须执行）**：
 
-   运行以下全部检查，**任何一项失败都必须修复后才能 push**：
+   **优先使用 merge-worktree 的 pre-merge-check.sh**（自动检测 monorepo/workspace，覆盖所有子包的 tsc/lint/test/build）：
 
    ```bash
-   # 1. TypeScript 类型检查
-   npx vue-tsc --noEmit 2>&1 || npm run type-check 2>&1
-   # 如果失败 → 修复 → 重新检查直到通过
+   # 如果项目有 merge-worktree skill，直接用它的完整验证脚本
+   if [ -f ~/.pi/agent/skills/merge-worktree/pre-merge-check.sh ]; then
+     bash ~/.pi/agent/skills/merge-worktree/pre-merge-check.sh
+   fi
+   ```
 
-   # 2. Lint 检查
+   **如果 pre-merge-check.sh 不可用**，手动运行以下检查，**任何一项失败都必须修复后才能 push**：
+
+   ```bash
+   # Monorepo/workspace 项目：先构建被依赖的包（如 core）
+   npm run build -w core 2>&1  # 如果有 workspace 子包被其他包依赖
+
+   # 逐包 TypeScript 类型检查
+   for pkg in core router frontend pi-extension; do
+     npx tsc --noEmit -w $pkg 2>&1
+     # 如果失败 → 修复 → 重新检查直到通过
+   done
+
+   # Lint 检查
    npx eslint . --max-warnings 0 2>&1 || npm run lint 2>&1
    # 如果失败 → 修复 → 重新检查直到通过
 
-   # 3. 单元测试
+   # 单元测试
    npm test 2>&1 || npx vitest run 2>&1
    # 如果失败 → 修复 → 重新检查直到全部通过
 
-   # 4. 构建检查（可选）
+   # 构建检查
    npm run build 2>&1 || true
    ```
 
    **规则：**
-   - type-check 和 lint 必须 0 error 0 warning
+   - 所有 workspace 子包的 tsc 必须 0 error
+   - lint 必须 0 error 0 warning
    - 测试必须全部通过
    - 修复后重新运行确认通过，再继续
+   - **包括非本次修改的子包**（如 pi-extension）也必须通过
 
 6. 运行脚本创建 PR：
    ```bash
