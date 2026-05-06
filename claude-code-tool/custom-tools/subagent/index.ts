@@ -31,6 +31,19 @@ const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
 
+// ──────────────────────── Model fallbacks ────────────────────────
+// When primary provider is unavailable, automatically try the equivalent
+// model from an alternative provider.
+
+const MODEL_FALLBACKS: Record<string, string[]> = {
+	// Primary: llm-simple-router (local router) → Fallback: ocg-deepseek (cloud)
+	"llm-simple-router/glm-5.1": ["ocg-deepseek/deepseek-v4-pro"],
+	"llm-simple-router/glm-5-turbo": ["ocg-deepseek/deepseek-v4-flash"],
+	// Reverse fallback: ocg-deepseek → llm-simple-router
+	"ocg-deepseek/deepseek-v4-pro": ["llm-simple-router/glm-5.1"],
+	"ocg-deepseek/deepseek-v4-flash": ["llm-simple-router/glm-5-turbo"],
+};
+
 // ──────────────────────── Formatting helpers ────────────────────────
 
 function formatTokens(count: number): string {
@@ -279,10 +292,23 @@ async function resolveModel(
 		return { ok: true, ref: `${match.provider}/${match.id}` };
 	}
 
+	// Try fallback models when primary is unavailable
+	const fallbackRefs = MODEL_FALLBACKS[modelRef] ?? [];
+	for (const fallbackRef of fallbackRefs) {
+		const fbSlash = fallbackRef.indexOf("/");
+		if (fbSlash <= 0) continue;
+		const fbProvider = fallbackRef.substring(0, fbSlash);
+		const fbModelId = fallbackRef.substring(fbSlash + 1);
+		const fbMatch = models.find((m) => m.provider === fbProvider && m.id === fbModelId);
+		if (fbMatch) {
+			return { ok: true, ref: `${fbMatch.provider}/${fbMatch.id}` };
+		}
+	}
+
 	const lines = models.map((m) => `  - ${m.id} (${m.provider})`).join("\n");
 	return {
 		ok: false,
-		error: `Model "${modelRef}" not found in scoped models.\nAvailable models:\n${lines}`,
+		error: `Model "${modelRef}" not found in scoped models (fallbacks also unavailable).\nAvailable models:\n${lines}`,
 	};
 }
 
@@ -672,7 +698,7 @@ const SubagentParams = Type.Object({
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
 	model: Type.String({
-		description: 'REQUIRED. Model in "provider/model" format (e.g. "llm-simple-router-dev/glm-5.1"). Must be a scoped model.',
+		description: 'REQUIRED. Model in "provider/model" format (e.g. "llm-simple-router/glm-5.1"). Falls back to equivalent model if unavailable.',
 	}),
 	background: Type.Optional(Type.Boolean({
 		description: "Run in background (single mode only). Returns job ID immediately. Default: false.",
@@ -700,8 +726,9 @@ export default function (pi: ExtensionAPI) {
 		label: "Subagent",
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",
-			'The \"model\" parameter is REQUIRED and must be in \"provider/model\" format (e.g. \"llm-simple-router-dev/glm-5.1\").',
-			"If model validation fails, the error will list all available models with their providers — use one from that list.",
+			'The \"model\" parameter is REQUIRED and must be in \"provider/model\" format (e.g. \"llm-simple-router/glm-5.1\").',
+			"If the requested model is unavailable, automatically falls back to an equivalent model from an alternative provider.",
+			"Model selection: complex tasks → llm-simple-router/glm-5.1, simple tasks → llm-simple-router/glm-5-turbo.",
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
 			"Set background: true for single mode to run in background (collect with collect_subagent).",
 			'Agent scope defaults to \"user\" (from ~/.pi/agent/agents).',
@@ -709,9 +736,11 @@ export default function (pi: ExtensionAPI) {
 		parameters: SubagentParams,
 		promptSnippet: "Delegate independent work to sub-agents with explicit model selection",
 		promptGuidelines: [
-			'subagent model is REQUIRED — must use "provider/model" format (NOT bare id like "glm-5.1", must be "llm-simple-router-dev/glm-5.1")',
+			'subagent model is REQUIRED — must use "provider/model" format (NOT bare id like "glm-5.1", must be "llm-simple-router/glm-5.1")',
 			'If unsure which models are available, call subagent with any model — the validation error will list all scoped models with providers',
 			"Choose cheaper/faster models for simple tasks, stronger models for complex analysis",
+			"Model selection: complex tasks → llm-simple-router/glm-5.1, simple tasks → llm-simple-router/glm-5-turbo",
+			"If llm-simple-router is unavailable, automatically falls back to ocg-deepseek equivalents (deepseek-v4-pro / deepseek-v4-flash)",
 			"Set background: true to run a task without waiting for the result",
 			"Use collect_subagent to retrieve background task results",
 			"Agents provide specialized system prompts and tool restrictions",
