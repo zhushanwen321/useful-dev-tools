@@ -18,13 +18,14 @@ from .utils import backup_file, is_our_symlink, load_json, save_json, log_action
 def _action_belongs(action, mod_name: str) -> bool:
     """Check if an action belongs to a module by name.
 
-    Uses exact match for file-type actions (description == mod_name)
-    and dir-name prefix match for symlink-type actions ("dirname/file").
+    Uses exact or stem match for file-type actions (description == mod_name
+    or description == mod_name + suffix).
+    Dir-name prefix match for symlink-type actions ("dirname/file").
     Avoids startswith prefix collision (hook vs hooks).
     """
     desc = action.description
-    # Exact match (file modules: description = "CLAUDE")
-    if desc == mod_name:
+    # Exact match (file modules: description = "CLAUDE.md" vs mod_name = "CLAUDE")
+    if desc == mod_name or desc == mod_name + ".md":
         return True
     # Dir prefix: "dirname/file" → check dirname part
     if "/" in desc:

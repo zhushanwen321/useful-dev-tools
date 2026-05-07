@@ -7,7 +7,7 @@ from typing import Optional
 
 EXCLUDE_DIRS = {"__pycache__", ".DS_Store", ".git", "node_modules", "bak",
                 "knowledge-engine", "installer"}
-EXCLUDE_FILES = {".DS_Store", ".gitignore"}
+EXCLUDE_FILES = {".DS_Store", ".gitignore", "README.md"}
 SYMLINK_SUFFIX = (".md",)
 
 

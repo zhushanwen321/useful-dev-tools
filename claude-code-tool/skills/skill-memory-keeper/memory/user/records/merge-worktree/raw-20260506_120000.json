@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-05-06T12:00:00Z",
+  "skill_name": "merge-worktree",
+  "dimension": "user",
+  "summarized": false,
+  "summary_ref": null,
+  "trigger_context": "用户要求 patch 发布 npm，发现 skill 要求切换到 main worktree 运行 publish.sh，但项目 CLAUDE.md 说在 feature worktree 就能完成",
+  "issue_type": "错误",
+  "severity": "major",
+  "description": "merge-worktree skill 的阶段 4A 指示 AI 'cd <main-worktree>; bash scripts/publish.sh patch'，但对于 GitHub Actions 触发的发布项目，publish.sh 只需触发远程 workflow（gh workflow run），不要求本地 main 分支。在 bare repo + worktree 结构中，main 可能已被另一个 worktree 占用，AI 无法直接 git checkout main，导致尝试提前删除 worktree 或跳转混乱。",
+  "user_feedback": "为什么AI操作的时候，会先删除worktree再去发布npm呢？为什么不会在原地全部操作完再去删除worktree？",
+  "context": {
+    "command": "git checkout main",
+    "input": "在 publish-main worktree (feat/zai-1305-retry-rule) 中执行 git checkout main",
+    "output": "fatal: 'main' is already used by worktree at '.../feat-harness-for-model'"
+  },
+  "environment": {
+    "model": "llm-simple-router/glm-5.1",
+    "platform": "bare repo + worktree workspace"
+  },
+  "tags": ["worktree-conflict", "publish-flow", "phase-4A", "claude-md-conflict"]
+}

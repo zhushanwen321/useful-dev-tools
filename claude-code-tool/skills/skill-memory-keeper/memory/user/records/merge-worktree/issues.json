@@ -1,0 +1,17 @@
+{
+  "skill_name": "merge-worktree",
+  "dimension": "user",
+  "last_updated": "2026-05-06T12:00:00Z",
+  "issues": [
+    {
+      "id": "issue-001",
+      "type": "错误",
+      "count": 1,
+      "first_seen": "2026-05-06",
+      "last_seen": "2026-05-06",
+      "severity": "major",
+      "summary": "阶段 4A 强制要求切换到 main worktree 运行 publish.sh，未考虑 GitHub Actions 发布项目不需要本地 main 分支",
+      "status": "pending"
+    }
+  ]
+}
