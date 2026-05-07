@@ -3,12 +3,32 @@ name: merge-worktree
 description: >
   完成 worktree 的完整合并流程：本地验证 → PR CI → merge → post-merge CI
   → 发布 → 清理 → 同步。使用 git merge --no-ff 保留完整分支历史。
+  自动识别发布脚本类型：GitHub Actions 触发型（在当前 worktree 运行）
+  和本地版本 bump 型（需切到 main worktree）。
   触发词："合并worktree"、"merge-worktree"、"合并PR"、"发布"、"release"、"上线"。
 ---
 
 # Merge Worktree
 
-## 流程总览
+## 一键脚本（推荐）
+
+```bash
+bash ~/.pi/agent/skills/merge-worktree/merge-and-publish.sh <worktree-dir> [patch|minor|major]
+```
+
+一键完成 5 个阶段：本地验证 → PR CI + 合并 → Post-merge CI → 发布 → 清理。
+
+**AI 行为：执行一次脚本，根据输出结果修复问题后重新运行，直到全部通过。**
+
+| 退出码 | 含义 | AI 行为 |
+|--------|------|--------|
+| 0 | 全部成功 | 无需操作 |
+| 1 | 失败 | 修复后重新运行脚本 |
+| 2 | 超时 | 询问用户 |
+
+## 分步流程（手动）
+
+如果一键脚本不适用，可按以下分步流程手动执行：
 
 ```
 阶段 0: 读 CLAUDE.md
@@ -177,9 +197,36 @@ bash ~/.claude/skills/merge-worktree/wait-for-ci.sh "$MAIN_SHA" --workflow "CI &
 **仅在 post-merge CI 通过后执行。**
 
 **4A: 项目有 scripts/publish.sh（CLAUDE.md 指定）**
+
+**重要：先读 CLAUDE.md 确认发布脚本类型，再决定在哪运行。**
+
 ```bash
-cd <main-worktree>
+# 读取 CLAUDE.md，搜索关键词：发布流程、publish.sh、release、npm publish
+```
+
+| publish.sh 类型 | 在哪运行 | 示例 |
+|----------------|---------|------|
+| **仅触发 GitHub Actions**（`gh workflow run`） | **当前 worktree**，无需 main | `bash scripts/publish.sh patch` |
+| **本地版本 bump + tag + push** | **main worktree** | `bash scripts/release.sh patch` |
+
+**判定方法：** 用 `grep` 检查 publish.sh 内容：
+```bash
+grep -q 'gh workflow run' scripts/publish.sh && echo "GitHub Actions 类型，当前 worktree 即可" || echo "本地类型，需 main worktree"
+```
+
+**GitHub Actions 类型（推荐）：**
+```bash
+# 直接在当前 feature worktree 运行，无需切换
 bash scripts/publish.sh patch  # 或 minor / major
+```
+
+**本地类型（需 main worktree）：**
+```bash
+# bare repo + worktree 中 main 已被另一个 worktree 占用
+# 先确认 main 在哪个 worktree
+MAIN_WORKTREE=$(git worktree list | awk '/\[main\]/ {print $1}')
+echo "main worktree: $MAIN_WORKTREE"
+cd "$MAIN_WORKTREE" && bash scripts/publish.sh patch
 ```
 
 **publish.sh 失败时：**
@@ -222,6 +269,14 @@ git add . && git commit                    # 解决后提交
 
 ## 教训记录
 
+### 2026-05-06: 阶段 4A 强制要求 main worktree 导致 worktree 冲突
+
+**事件**：AI 在 feature worktree 完成验证+合并后，按 skill 指引尝试 `git checkout main` 失败（main 在另一个 worktree），导致操作混乱。
+
+**根因**：skill 阶段 4A 写死要求 `cd <main-worktree>`，未区分两种发布脚本类型。对于 GitHub Actions 触发型发布（`gh workflow run`），publish.sh 完全不需要本地 main 分支，原地就能运行。
+
+**修复**：✅ 阶段 4A 增加判定逻辑：先读 CLAUDE.md 确认脚本类型 → GitHub Actions 型就地运行，本地型才切 main worktree → 提供 `git worktree list` 查找 main 的实用命令
+
 ### 2025-05-05: 本地验证不完整 + Post-merge CI 未检查
 
 **事件**：AI 因 worktree 缺 node_modules 跳过 vue-tsc 和 lint；合并后不等 post-merge CI 直接 publish。
@@ -229,3 +284,10 @@ git add . && git commit                    # 解决后提交
 **根因**：手动逐项检查无强制门控 → AI "合理化"跳过；无 post-merge CI 等待 → 可能发布坏版本。
 
 **修复**：✅ pre-merge-check.sh（自动装依赖 + 5 步强制）✅ wait-for-ci.sh（post-merge CI 等待）✅ SKILL.md 6 阶段流程
+
+---
+
+## 经验总结
+
+### 最新笔记
+- [2026-05-06 快速笔记](../skill-memory-keeper/memory/user/quick-notes/merge-worktree/note-2026-05-06.md)
