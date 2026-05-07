@@ -13,10 +13,20 @@ description: >
 ## 一键脚本（推荐）
 
 ```bash
+# 正常模式：worktree 仍在
 bash ~/.pi/agent/skills/merge-worktree/merge-and-publish.sh <worktree-dir> [patch|minor|major]
+
+# 恢复模式：worktree 已删除（如 CI 失败修复后）
+bash ~/.pi/agent/skills/merge-worktree/merge-and-publish.sh --resume <workspace-root> <branch-name> [patch|minor|major]
 ```
 
 一键完成 5 个阶段：本地验证 → PR CI + 合并 → Post-merge CI → 发布 → 清理。
+
+**幂等性**：已完成的阶段自动跳过，支持断点续跑：
+- PR 已合并 → 跳过阶段 2
+- Post-merge CI 已通过 → wait-for-ci.sh 秒返
+- npm 版本已发布 → 跳过阶段 4
+- Worktree 已删除 → 跳过阶段 5
 
 **AI 行为：执行一次脚本，根据输出结果修复问题后重新运行，直到全部通过。**
 
