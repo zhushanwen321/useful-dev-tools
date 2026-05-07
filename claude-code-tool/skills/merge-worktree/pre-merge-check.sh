@@ -322,11 +322,15 @@ fi
 section "步骤 5/5: Git 状态检查"
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    # 刷新 index stat 缓存，避免 tsc/vite 构建修改文件 mtime 后导致的误报
+    git update-index --refresh > /dev/null 2>&1 || true
     # 未提交变更
-    if ! git diff --quiet HEAD 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+    changed_files=$(git diff --name-only HEAD 2>/dev/null)
+    cached_files=$(git diff --cached --name-only 2>/dev/null)
+    if [[ -n "$changed_files" ]] || [[ -n "$cached_files" ]]; then
         fail "有未提交的代码变更 — 必须先 git commit 后才能合并"
         echo "  未提交文件:"
-        git status --short | head -20 | sed 's/^/    /'
+        (echo "$changed_files"; echo "$cached_files") | grep -v '^$' | sort -u | head -20 | sed 's/^/    M /'
     else
         pass "Git 工作区干净"
     fi
