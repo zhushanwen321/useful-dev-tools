@@ -39,9 +39,18 @@ check_debian_version() {
     source /etc/os-release
 
     if [[ "$ID" != "debian" ]]; then
-        echo -e "${YELLOW}警告: 当前系统为 $ID，此工具专为 Debian 设计${NC}" >&2
-        read -rp "是否继续? [y/N]: " confirm
-        [[ "$confirm" =~ ^[Yy]$ ]] || exit 1
+        log_warn "当前系统为 $ID，此工具专为 Debian 设计"
+        # 使用 draw_yesno 而非裸 read，避免在 whiptail TUI 环境下 stdin 被占用导致卡死
+        local compat_msg="当前系统为 $ID，此工具专为 Debian 设计。\n\n是否继续？"
+        if declare -f draw_yesno &>/dev/null; then
+            if ! draw_yesno "系统兼容性" "$compat_msg"; then
+                return 1
+            fi
+        else
+            # draw_yesno 不可用时回退到 read（CLI 模式）
+            read -rp "是否继续? [y/N]: " confirm
+            [[ "$confirm" =~ ^[Yy]$ ]] || return 1
+        fi
     fi
 
     DEBIAN_VERSION="${VERSION_ID:-unknown}"
