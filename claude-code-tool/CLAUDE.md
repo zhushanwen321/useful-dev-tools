@@ -135,6 +135,19 @@ ln -s <project>/.claude/skills/<skill-name> <project>/.pi/skills/<skill-name>
 #### PULL
 ** PULL操作时，必须使用rebase，不允许使用merge。**
 
+#### PUSH
+GitHub 推送通过 `GITHUB_TOKEN` 认证，**不需要走代理**。
+
+```bash
+# 直接推送，不需要先开代理
+git push
+```
+
+如果遇到认证问题：
+1. 确认 `GITHUB_TOKEN` 已设置（通过 `~/.shell/github.sh` 加载）
+2. 使用 `gh auth token` 确认 token 有效
+3. 尝试 `git push https://oauth2:$(gh auth token)@github.com/<用户>/<仓库>.git HEAD:master`
+
 ### 项目 Workspace 结构
 
 不少项目使用bare repo + 多 worktree 的工作模式，使用git时需要检测项目是否为这种模式：
