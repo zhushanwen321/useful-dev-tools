@@ -158,11 +158,15 @@ def execute_action(action, backup_dir: Path, undo_stack: Optional[UndoStack] = N
     elif isinstance(action, PipInstallAction):
         ui.info(f"安装 {action.package}...")
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", action.package],
+            [sys.executable, "-m", "pip", "install", "--break-system-packages", action.package],
             capture_output=True, text=True)
         if result.returncode == 0:
             ui.success(f"{action.package} 安装完成")
         else:
+            # 输出 stderr 帮助诊断
+            if result.stderr:
+                for line in result.stderr.strip().splitlines()[-5:]:
+                    ui.warn(f"  {line}")
             ui.error(f"{action.package} 安装失败")
             raise RuntimeError(f"pip install {action.package} failed")
 
