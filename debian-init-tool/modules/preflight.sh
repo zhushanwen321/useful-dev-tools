@@ -15,7 +15,11 @@ configure_preflight() {
         return 1
     fi
 
-    # 2. 检测系统版本
+    # 2. 检测系统版本（先检查兼容性，必须在主 shell 中执行以支持 whiptail 交互）
+    if ! check_system_compat; then
+        return 1
+    fi
+
     local debian_version
     debian_version=$(check_debian_version 2>/dev/null)
 

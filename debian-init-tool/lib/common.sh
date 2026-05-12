@@ -29,8 +29,8 @@ check_root() {
     fi
 }
 
-# 检查系统是否为 Debian
-check_debian_version() {
+# 检查系统兼容性（不含版本号获取，供外部直接调用，不在子 shell 中）
+check_system_compat() {
     if [[ ! -f /etc/os-release ]]; then
         echo -e "${RED}错误: 无法检测系统版本${NC}" >&2
         return 1
@@ -40,18 +40,27 @@ check_debian_version() {
 
     if [[ "$ID" != "debian" ]]; then
         log_warn "当前系统为 $ID，此工具专为 Debian 设计"
-        # 使用 draw_yesno 而非裸 read，避免在 whiptail TUI 环境下 stdin 被占用导致卡死
         local compat_msg="当前系统为 $ID，此工具专为 Debian 设计。\n\n是否继续？"
         if declare -f draw_yesno &>/dev/null; then
             if ! draw_yesno "系统兼容性" "$compat_msg"; then
                 return 1
             fi
         else
-            # draw_yesno 不可用时回退到 read（CLI 模式）
             read -rp "是否继续? [y/N]: " confirm
             [[ "$confirm" =~ ^[Yy]$ ]] || return 1
         fi
     fi
+}
+
+# 获取 Debian 版本号（纯获取，无交互，安全用于子 shell）
+check_debian_version() {
+    if [[ ! -f /etc/os-release ]]; then
+        echo -e "${RED}错误: 无法检测系统版本${NC}" >&2
+        return 1
+    fi
+
+    # source /etc/os-release 可能已被上层调用过，安全重复 source
+    source /etc/os-release
 
     DEBIAN_VERSION="${VERSION_ID:-unknown}"
     DEBIAN_CODENAME="${VERSION_CODENAME:-unknown}"
