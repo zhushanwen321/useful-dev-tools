@@ -45,6 +45,7 @@
 只有当用户明确指定使用英语或其他语言时，才使用相应语言。
 ### 规则设置
 1. **当你认为对话中存在过量无用信息或者冗余信息时，提醒用户启用压缩compact功能，并给出压缩提示词，告知用户哪些信息应该保留，哪些信息应该删除。**
+2. **Kill 进程时必须精确定位到目标进程再 kill，禁止使用宽泛的 `pkill python`、`pkill tsx`、`pkill vite`、`pkill node` 等命令。** 先用 `lsof -i :<port>` 或 `ps aux | grep <关键字>` 找到具体 PID，再用 `kill <PID>` 终止。宽泛的 pkill 会误杀其他正在运行的无关进程。
 
 ### 回答习惯
 **请使用以下回答习惯：**
@@ -76,31 +77,6 @@
 - **Pi 环境**（必须指定 `provider/model` 格式）：
   - **简单任务**（文件查找、批量替换、简单格式化等）：优先 `llm-simple-router/glm-5-turbo`，失败时回退 `ocg-deepseek/deepseek-v4-flash`
   - **复杂任务**（代码分析、架构设计、多文件重构等）：优先 `llm-simple-router/glm-5.1`，失败时回退 `ocg-deepseek/deepseek-v4-pro`
-
-### Superpowers Skill 覆盖规则
-
-**以下规则强制覆盖所有 superpowers skill 中的冲突默认值。**
-
-#### 目录规范
-所有 superpowers 生成的文件存放在统一目录结构：
-- 主目录：`{project_root}/.superpowers/`
-- 子目录按主题划分，命名格式：`${yyyy-MM-dd}-${主题简短标题}`
-  例如：`2026-04-14-core-proxy`、`2026-04-16-auto-retry`
-- 主题目录下存放该主题的文档（spec.md、plan.md 等）
-- 不同主题使用不同子目录，禁止混放
-- **此规则覆盖 skill 自带的目录默认值（如 `docs/superpowers/specs/` 等）**
-
-#### 文档精简拆分
-- 将文档模块尽量拆细，表达清晰的前提下减少文字量
-- 单次写入预计超过 1000 字时，优先拆分文档模块和子文档（主文档链接引用）
-- 只有不合理拆分时（内容确实属于同一主题），才分批写入同一个文档
-- 使用 agent 并行编写各模块文档（并发度≤2），最后合成精简主文档
-
-#### 容易出错的地方
-superpowers有很多在执行完要review的地方，经常会被错误地执行为code-reviewer，这是错误的！
-真正应该执行的是 general-purpose 的 agent，而不是 code-reviewer 或者 superpowers:code-reviewer。
-只有 subagent-driven-development 中的代码使用 superpowers:code-reviewer 这个agent （注意，也不是 code-reviewer）
-需要仔细分辨使用，不要错误使用。
 
 ### Skill 跨工具兼容
 

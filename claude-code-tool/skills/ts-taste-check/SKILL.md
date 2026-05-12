@@ -58,20 +58,41 @@ bash ~/Code/coding_config/.codetaste/ts/init-lint.sh [项目目录]
 **P0 原则违反（必须修复）**
 
 | 检查项 | 文档来源 | 可自动化 |
-|--------|---------|---------|
+|--------|---------|----------|
 | 文件超 300 行需审视拆分，超 500 行几乎一定拆分 | taste.md "结构先于一切" | ESLint max-lines |
 | 文件混合多种职责：路由+业务+数据访问 | taste.md "单文件多职责" | 人工 |
 | 跨文件重复逻辑（80% 相似且 >10 行） | taste.md "消除一切重复" | 人工 |
+| **跨文件重复定义同名 interface/类型**（如 `AnthropicRequest` 在两文件中各一份） | taste.md "消除一切重复——包括跨文件重复的类型定义" | 人工（grep 同名 interface） |
 | 未约束的 `any` | taste.md "类型即契约" | ESLint no-explicit-any |
-| `Record<string, unknown>` 无校验直接使用 | essence.md "信任止于边界" | 人工 |
+| **`Record<string, unknown>` + `as` 断言绕过类型检查**：函数内部用 `Record<string, unknown>` 访问 API 字段而非入口断言为结构化类型 | taste.md "类型即契约" + "用 as 绕过类型检查" | 人工（见下方白名单规则） |
+| **类型定义与实际数据不一致**：interface 声明字段必填但实际数据中不存在 | taste.md "类型定义与实际数据不一致" | 人工（对比 interface 与实际 JSON） |
 | 错误响应格式不统一 | taste.md "统一优于灵活" | 人工 |
 | API 响应未使用统一信封 `{code,message,data}` | taste.md "API 响应格式规范" | 人工 |
 | 前端 catch 块硬编码错误消息而非从 `ApiError.message` 提取 | taste.md "API 响应格式规范" | 人工 |
 
+**P0 的 `Record<string, unknown>` 白名单规则**
+
+检查 `Record<string, unknown>` 违规时，必须先查看项目 CLAUDE.md 中是否定义了白名单。
+白名单中的场景不视为违规。典型白名单场景：
+
+| 场景 | 说明 |
+|------|------|
+| 外部接口签名 | 如 `FormatConverter` 接口约束 `body: Record<string, unknown>` |
+| 输出对象构造 | `const result: Record<string, unknown> = {}` |
+| 流式 SSE payload | `JSON.parse(event.data)` 后的数据 |
+| Patch 层 | 处理上游响应的 patch 函数 |
+| 错误格式转换 | 错误响应结构多变 |
+| tool_choice 映射 | 格式跨 API 差异大 |
+
+**不在白名单中的 `Record<string, unknown>` 必须改为结构化类型**：
+- 函数入口处 `const req = body as unknown as ConcreteType`
+- 数组遍历用 discriminated union 收窄
+- 白名单中没有的场景如果确实无法消除，应补充到白名单并说明理由
+
 **P1 偏好（推荐修复）**
 
 | 检查项 | 文档来源 | 可自动化 |
-|--------|---------|---------|
+|--------|---------|----------|
 | 前后端类型混用（Provider vs ProviderForm vs ProviderPayload） | taste.md "前后端类型分离" | 人工 |
 | 边界数据缺少运行时校验（zod/TypeBox） | essence.md "信任止于边界" | 人工 |
 | `catch` 块静默吞错误（仅 console.error 无 UI 反馈） | taste.md "异步操作无 UI 反馈" | taste/no-silent-catch |
@@ -81,11 +102,13 @@ bash ~/Code/coding_config/.codetaste/ts/init-lint.sh [项目目录]
 | `Object.entries` 拼接 SQL/配置无白名单 | taste.md "动态字段名无白名单" | taste/no-unsafe-object-entries |
 | API 层暴露内部实现（如导出 axios 实例） | taste.md "暴露内部实现" | 人工 |
 | 魔法数字/字符串缺命名常量 | taste.md "语义化命名" | ESLint no-magic-numbers |
+| **`Record<string, unknown>` 残留未在白名单中登记** | taste.md "灵活类型的残留应该白名单管理" | 人工（比对 CLAUDE.md 白名单） |
+| **函数签名灵活但内部未用入口断言** | taste.md "函数签名兼容性优先" | 人工（检查 `body: Record<string, unknown>` 内是否有 `as ConcreteType`） |
 
 **P2 安全防御（必须修复）**
 
 | 检查项 | 文档来源 | 可自动化 |
-|--------|---------|---------|
+|--------|---------|----------|
 | 认证操作未使用 timing-safe 比较 | taste.md "安全无例外" | 人工 |
 | `v-html` 可替换为组件方式 | taste.md "安全无例外" | vue/no-v-html |
 | 敏感数据泄露（日志/明文 API Key/密码） | taste.md "安全无例外" | 人工 |

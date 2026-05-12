@@ -137,16 +137,18 @@ export default function (pi: ExtensionAPI) {
 	pi.on("message_end", async (event, ctx) => {
 		if (event.message.role === "assistant") {
 			const msg = event.message as AssistantMessage;
+			if (!msg.usage) return; // 旧版 session 消息可能没有 usage
 			const dur = state.assistantStart ? Date.now() - state.assistantStart : 0;
 			state.lastLlmTime = Date.now();
 			// session 重放时所有消息瞬间回放，duration≈0，导致虚假极速
-			// 输出>50tokens 但 duration<100ms → 跳过此条的速度记录
+			// 输出>50tokens 但 duration<100ms → 跳过此条的速度记录和增量更新（避免双重计数）
 			const isBogusReplay = msg.usage.output > 50 && dur < 100;
-			if (!isBogusReplay) {
-				state.speed = trackSpeed(msg.usage.output, dur, ctx.model?.id ?? "");
-			} else {
+			if (isBogusReplay) {
 				state.speed = { current: 0, day: 0, d7: 0, d30: 0 };
+				// session_start 的 refreshTotals 已经扫描了全量，跳过增量更新
+				return;
 			}
+			state.speed = trackSpeed(msg.usage.output, dur, ctx.model?.id ?? "");
 			// 增量更新汇总（避免全量扫描 session）
 			state.totalInp += msg.usage.input;
 			state.totalOut += msg.usage.output;
@@ -189,6 +191,7 @@ function refreshTotals(st: State, ctx: any): void {
 	for (const e of ctx.sessionManager.getBranch()) {
 		if (e.type === "message" && e.message.role === "assistant") {
 			const u = (e.message as AssistantMessage).usage;
+			if (!u) continue; // 旧版 session 可能没有 usage 字段
 			inp += u.input;
 			out += u.output;
 			cost += u.cost.total;
@@ -202,12 +205,13 @@ function refreshTotals(st: State, ctx: any): void {
 
 /** 更新上下文使用率缓存 */
 function refreshContextUsage(st: State, ctx: any): void {
-	const model = ctx.model;
-	const contextWindow = model?.contextWindow || 128_000;
 	const usage = ctx.getContextUsage();
-	const usedPct = usage
-		? Math.min(Math.round((usage.tokens / contextWindow) * 100), 100)
-		: 0;
+	if (!usage || usage.tokens === null) {
+		// compaction 后 tokens 未知，不更新缓存，保留上次已知值
+		return;
+	}
+	const contextWindow = usage.contextWindow || 128_000;
+	const usedPct = Math.min(Math.round((usage.tokens / contextWindow) * 100), 100);
 	st.usedPct = usedPct;
 	st.loadPct = Math.min(Math.round((usedPct * 100) / 84), 100);
 }
