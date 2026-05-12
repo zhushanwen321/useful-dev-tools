@@ -170,9 +170,19 @@ def execute_action(action, backup_dir: Path, undo_stack: Optional[UndoStack] = N
                 raise RuntimeError("apt install python3-pip failed")
 
         ui.info(f"安装 {action.package}...")
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--break-system-packages", action.package],
+
+        # 检查 pip 是否支持 --break-system-packages（pip 23.0+ 才有此选项）
+        check_flags = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--help"],
             capture_output=True, text=True)
+        has_break_system = "--break-system-packages" in check_flags.stdout
+
+        pip_cmd = [sys.executable, "-m", "pip", "install"]
+        if has_break_system:
+            pip_cmd.append("--break-system-packages")
+        pip_cmd.append(action.package)
+
+        result = subprocess.run(pip_cmd, capture_output=True, text=True)
         if result.returncode == 0:
             ui.success(f"{action.package} 安装完成")
         else:

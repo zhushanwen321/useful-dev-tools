@@ -338,7 +338,27 @@ class Installer:
 
     def _migrate_legacy(self, target: Path, undo_stack: UndoStack) -> None:
         migrated = 0
-        for item_name in ("skills", "agents", "commands", "hooks", "custom-tools"):
+
+        # Handle old hooks → extensions rename (pi renamed hooks to extensions)
+        hooks_path = target / "hooks"
+        ext_path = target / "extensions"
+        if hooks_path.is_symlink() and hooks_path.is_dir() and not ext_path.exists():
+            source_ext = self.script_dir / "extensions"
+            if source_ext.is_dir():
+                ui.info("迁移老安装: hooks → extensions")
+                old_target = str(hooks_path.resolve())
+                undo_stack.push(f"恢复老安装 hooks → extensions",
+                                lambda p=hooks_path, r=old_target: (
+                                    shutil.rmtree(str(p)) if p.is_dir() else p.unlink(missing_ok=True),
+                                    p.symlink_to(r))[-1])
+                hooks_path.unlink()
+                ext_path.mkdir(parents=True, exist_ok=True)
+                for child in sorted(source_ext.iterdir()):
+                    if child.exists() and child.name not in {"__pycache__", ".DS_Store", ".git"}:
+                        (ext_path / child.name).symlink_to(child)
+                migrated += 1
+
+        for item_name in ("skills", "agents", "commands", "extensions", "custom-tools"):
             item_path = target / item_name
             if not item_path.is_symlink() or not item_path.is_dir():
                 continue

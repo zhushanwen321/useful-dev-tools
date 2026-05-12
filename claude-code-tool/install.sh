@@ -15,7 +15,7 @@ MODULES=(
   "skills|Skills 技能集合|symlink|low|"
   "agents|Agent 子代理|symlink|low|"
   "commands|自定义命令|symlink|low|"
-  "hooks|Hook 脚本|symlink|low|"
+  "extensions|扩展|symlink|low|"
   "custom-tools|自定义工具|symlink|low|"
   "claude-md|CLAUDE.md 全局配置|file|medium|"
   "statusline|状态栏|settings|low|"
@@ -63,7 +63,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$SCRIPT_DIR"
 
 # 目录类型的 ITEM：安装其子项为 symlink（不改动目录本身）
-DIR_ITEMS=("agents" "commands" "skills" "custom-tools" "hooks")
+DIR_ITEMS=("agents" "commands" "skills" "custom-tools" "extensions")
 # 文件类型的 ITEM：直接作为 symlink 安装
 FILE_ITEMS=("CLAUDE.md")
 KNOWLEDGE_ENGINE_DIR="$CLAUDE_DIR/knowledge-engine"
