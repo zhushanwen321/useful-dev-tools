@@ -48,13 +48,21 @@ configure_fish() {
         return 1
     fi
 
-    # 4. 如果选择了共享配置，询问代理地址
+    # 4. 如果选择了共享配置，检查是否已有代理配置
     local proxy_host="${PROXY_HOST:-127.0.0.1}"
     local proxy_port="${PROXY_PORT:-7890}"
 
     if echo "$selected" | grep -qw "shared"; then
-        proxy_host=$(draw_inputbox "代理配置" "代理主机地址:" "$proxy_host") || proxy_host="${PROXY_HOST:-127.0.0.1}"
-        proxy_port=$(draw_inputbox "代理配置" "代理端口:" "$proxy_port") || proxy_port="${PROXY_PORT:-7890}"
+        if [[ -f "${home_dir}/.shell/proxy.sh" ]]; then
+            log_info "检测到已有 ~/.shell/proxy.sh，跳过代理配置"
+            proxy_host=$(grep -oP 'http://\K[^:]+' "${home_dir}/.shell/proxy.sh" | head -1)
+            proxy_port=$(grep -oP 'http://[^:]+:\K[0-9]+' "${home_dir}/.shell/proxy.sh" | head -1)
+            proxy_host="${proxy_host:-127.0.0.1}"
+            proxy_port="${proxy_port:-7890}"
+        else
+            proxy_host=$(draw_inputbox "代理配置" "代理主机地址:" "$proxy_host") || proxy_host="${PROXY_HOST:-127.0.0.1}"
+            proxy_port=$(draw_inputbox "代理配置" "代理端口:" "$proxy_port") || proxy_port="${PROXY_PORT:-7890}"
+        fi
     fi
 
     # 5. 确认

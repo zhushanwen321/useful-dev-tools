@@ -32,6 +32,9 @@ generate_shell_common_posix() {
     log_info "生成 POSIX 共享配置: $shell_dir"
 
     # --- proxy.sh ---
+    if [[ -f "${shell_dir}/proxy.sh" ]]; then
+        log_info "proxy.sh 已存在，跳过覆盖"
+    else
     cat > "${shell_dir}/proxy.sh" << PROXY_EOF
 # 代理配置 - 由 debian-init-tool 生成
 # 修改 PROXY_HOST / PROXY_PORT 即可切换代理地址
@@ -58,6 +61,7 @@ showproxy() {
     echo "all_proxy: \${all_proxy:-未设置}"
 }
 PROXY_EOF
+    fi
 
     # --- aliases.sh ---
     cat > "${shell_dir}/aliases.sh" << ALIASES_EOF
@@ -105,6 +109,9 @@ generate_shell_common_fish() {
     log_info "生成 Fish 共享配置: $fish_conf_dir"
 
     # --- proxy.fish ---
+    if [[ -f "${fish_conf_dir}/proxy.fish" ]]; then
+        log_info "proxy.fish 已存在，跳过覆盖"
+    else
     cat > "${fish_conf_dir}/proxy.fish" << PROXY_EOF
 # 代理配置 - 由 debian-init-tool 生成
 
@@ -142,6 +149,7 @@ function showproxy
     end
 end
 PROXY_EOF
+    fi
 
     # --- aliases.fish ---
     cat > "${fish_conf_dir}/aliases.fish" << ALIASES_EOF

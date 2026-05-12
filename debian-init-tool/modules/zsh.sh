@@ -133,11 +133,20 @@ configure_zsh() {
         install_zsh_plugins "$plugins" "$target_user" "$home_dir"
     fi
 
-    # 8. 生成共享配置 (~/.shell/)
+    # 8. 生成共享配置 (~/.shell/)，检测已有代理配置时跳过询问
     local proxy_host="${PROXY_HOST:-127.0.0.1}"
     local proxy_port="${PROXY_PORT:-7890}"
-    proxy_host=$(draw_inputbox "代理配置" "代理主机地址:" "$proxy_host") || proxy_host="${PROXY_HOST:-127.0.0.1}"
-    proxy_port=$(draw_inputbox "代理配置" "代理端口:" "$proxy_port") || proxy_port="${PROXY_PORT:-7890}"
+
+    if [[ -f "${home_dir}/.shell/proxy.sh" ]]; then
+        log_info "检测到已有 ~/.shell/proxy.sh，跳过代理配置"
+        proxy_host=$(grep -oP 'http://\K[^:]+' "${home_dir}/.shell/proxy.sh" | head -1)
+        proxy_port=$(grep -oP 'http://[^:]+:\K[0-9]+' "${home_dir}/.shell/proxy.sh" | head -1)
+        proxy_host="${proxy_host:-127.0.0.1}"
+        proxy_port="${proxy_port:-7890}"
+    else
+        proxy_host=$(draw_inputbox "代理配置" "代理主机地址:" "$proxy_host") || proxy_host="${PROXY_HOST:-127.0.0.1}"
+        proxy_port=$(draw_inputbox "代理配置" "代理端口:" "$proxy_port") || proxy_port="${PROXY_PORT:-7890}"
+    fi
     ensure_shell_common "$home_dir" "$target_user" "$proxy_host" "$proxy_port"
 
     # 9. 生成 .zshrc
