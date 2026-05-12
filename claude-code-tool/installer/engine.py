@@ -156,6 +156,19 @@ def execute_action(action, backup_dir: Path, undo_stack: Optional[UndoStack] = N
                             lambda t=action.target: t.unlink(missing_ok=True))
 
     elif isinstance(action, PipInstallAction):
+        # 确保 pip 可用
+        check_pip = subprocess.run(
+            [sys.executable, "-m", "pip", "--version"],
+            capture_output=True, text=True)
+        if check_pip.returncode != 0:
+            ui.info("pip 未安装，正在安装 python3-pip...")
+            apt_result = subprocess.run(
+                ["apt-get", "install", "-y", "python3-pip"],
+                capture_output=True, text=True)
+            if apt_result.returncode != 0:
+                ui.error("python3-pip 安装失败")
+                raise RuntimeError("apt install python3-pip failed")
+
         ui.info(f"安装 {action.package}...")
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "--break-system-packages", action.package],
@@ -163,7 +176,6 @@ def execute_action(action, backup_dir: Path, undo_stack: Optional[UndoStack] = N
         if result.returncode == 0:
             ui.success(f"{action.package} 安装完成")
         else:
-            # 输出 stderr 帮助诊断
             if result.stderr:
                 for line in result.stderr.strip().splitlines()[-5:]:
                     ui.warn(f"  {line}")
