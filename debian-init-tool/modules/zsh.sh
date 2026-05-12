@@ -21,7 +21,7 @@ select_zsh_all_in_one() {
         "sudo"             "双击 ESC 添加 sudo"    "ON"
         "colored-man-pages" "彩色 man 页面"        "ON"
         "z"                "目录快速跳转 (frecent)" "ON"
-        "colorize"         "语法高亮 cat"          "OFF"
+        "colorize"         "语法高亮 cat"          "ON"
         "copypath"         "复制当前路径"           "OFF"
         "copyfile"         "复制文件内容"           "OFF"
         "dirhistory"       "目录历史导航"           "OFF"
@@ -32,8 +32,8 @@ select_zsh_all_in_one() {
         # 第三方插件
         "zsh-autosuggestions"       "命令自动建议"     "ON"
         "zsh-syntax-highlighting"   "命令语法高亮"     "ON"
-        "zsh-completions"           "扩展补全"        "OFF"
-        "zsh-autopair"              "括号自动配对"     "OFF"
+        "zsh-completions"           "扩展补全"        "ON"
+        "zsh-autopair"              "括号自动配对"     "ON"
 
         # 其他选项
         "set-as-default-shell"      "设为默认 Shell"   "ON"
