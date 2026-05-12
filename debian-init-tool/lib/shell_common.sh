@@ -66,18 +66,16 @@ PROXY_EOF
     # --- aliases.sh ---
     cat > "${shell_dir}/aliases.sh" << ALIASES_EOF
 # 通用别名 - 由 debian-init-tool 生成
+# 使用 function 而非 alias，确保非交互式 shell 也可用
 
-alias ll='ls -alF'
-alias la='ls -A'
-alias l='ls -CF'
-alias ..='cd ..'
-alias ...='cd ../..'
-alias cls='clear'
-alias grep='grep --color=auto'
-alias fgrep='fgrep --color=auto'
-alias egrep='egrep --color=auto'
-alias h='history'
-alias ports='netstat -tulanp'
+ll() { ls -alF "$@"; }
+la() { ls -A "$@"; }
+l() { ls -CF "$@"; }
+..() { cd ..; }
+...() { cd ../..; }
+cls() { clear; }
+h() { history "$@"; }
+ports() { netstat -tulanp; }
 ALIASES_EOF
 
     # --- env.sh ---
