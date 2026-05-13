@@ -17,6 +17,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { Message } from "@mariozechner/pi-ai";
 import { StringEnum } from "@mariozechner/pi-ai";
@@ -330,6 +331,9 @@ interface JobInfo {
 
 const jobs = new Map<string, JobInfo>();
 
+// Emitted as `done:${jobId}` when a background job finishes (close/error/abort)
+const jobEvents = new EventEmitter();
+
 function getJobDir(): string {
 	const dir = path.join(os.tmpdir(), "pi-subagent-jobs");
 	if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -642,12 +646,14 @@ async function startBackgroundJob(
 		}
 		job.promptFile = null;
 		job.promptDir = null;
+		jobEvents.emit(`done:${jobId}`);
 	});
 
 	proc.on("error", () => {
 		job.status = "failed";
 		outStream.end();
 		errStream.end();
+		jobEvents.emit(`done:${jobId}`);
 	});
 
 	proc.unref();
@@ -663,6 +669,7 @@ function cleanupJob(job: JobInfo) {
 		}
 		job.status = "aborted";
 	}
+	jobEvents.emit(`done:${job.id}`);
 	for (const f of [job.outFile, job.errFile, job.promptFile]) {
 		if (f) {
 			try { fs.unlinkSync(f); } catch { /* ignore */ }
@@ -1321,34 +1328,41 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			// ── Internal polling with sleep until job completes ──
-			// Progressive wait intervals (seconds): 5, 10, 15, 20, 30, then 30s repeated
-			const WAIT_INTERVALS = [10, 20, 40, 80, 120];
-			const MAX_WAIT = 120;
-			let waitIndex = 0;
+			// ── Event-driven wait with timeout fallback ──
+			const POLL_INTERVAL_SEC = 10;
 
 			while (job.status === "running") {
-				const waitSec = waitIndex < WAIT_INTERVALS.length
-					? WAIT_INTERVALS[waitIndex]
-					: MAX_WAIT;
-				waitIndex++;
-
 				const elapsed = ((Date.now() - job.startedAt) / 1000).toFixed(1);
 				onUpdate?.({
 					content: [{
 						type: "text",
-						text: `[Job ${jobId.slice(0, 8)}... still running (${elapsed}s), waiting ${waitSec}s before next check...]`,
+						text: `[Job ${jobId.slice(0, 8)}... still running (${elapsed}s), polling...]`,
 					}],
 				});
 
-				// Sleep with abort signal support
+				// Three-way race: event (instant) vs timeout (fallback) vs abort
+				const eventName = `done:${jobId}`;
 				const aborted = await new Promise<boolean>((resolve) => {
-					const timer = setTimeout(() => resolve(false), waitSec * 1000);
+					let settled = false;
+
+					const settle = (value: boolean) => {
+						if (settled) return;
+						settled = true;
+						jobEvents.off(eventName, onDone);
+						clearTimeout(timer);
+						if (signal) signal.removeEventListener("abort", onAbort);
+						resolve(value);
+					};
+
+					const onDone = () => settle(false);   // job completed → not aborted
+					const onAbort = () => settle(true);   // user abort
+
+					const timer = setTimeout(() => settle(false), POLL_INTERVAL_SEC * 1000);
+
+					jobEvents.on(eventName, onDone);
 					if (signal) {
-						if (signal.aborted) { clearTimeout(timer); resolve(true); }
-						else signal.addEventListener("abort", () => { clearTimeout(timer); resolve(true); }, { once: true });
-					} else {
-						resolve(false);
+						if (signal.aborted) { settle(true); return; }
+						signal.addEventListener("abort", onAbort, { once: true });
 					}
 				});
 
