@@ -297,14 +297,16 @@ export default function forceLoopExtension(pi: ExtensionAPI) {
 		const lines: string[] = [];
 		const incomplete = state.tasks.filter((t) => !t.completed);
 		const header =
-			`🔄 ${state.loopCount}/${state.maxLoops} 轮 | ✓ ${completed}/${total} 任务` +
-			(state.stallCount > 0 ? ` | ⚠ ${state.stallCount}轮无进展` : "") +
-			(state.isPaused ? " | ⏸ 暂停" : "");
+			th.fg("accent", `🔄 Loop`) +
+			th.fg("muted", ` ${state.loopCount}/${state.maxLoops} 轮`) +
+			th.fg("muted", ` | ✓ ${completed}/${total}`) +
+			(state.stallCount > 0 ? th.fg("warning", ` | ⚠ ${state.stallCount}轮无进展`) : "") +
+			(state.isPaused ? th.fg("warning", " | ⏸ 暂停") : "");
 		lines.push(header);
 		for (const t of state.tasks) {
 			const icon = t.completed ? th.fg("success", "✓") : th.fg("dim", "☐");
 			const desc = t.completed ? th.fg("dim", t.description) : th.fg("text", t.description);
-			lines.push(`${icon} ${th.fg("accent", `#${t.id}`)} ${desc}`);
+			lines.push(`  ${icon} #${t.id} ${desc}`);
 		}
 		ctx.ui.setWidget("force-loop", lines);
 	}
