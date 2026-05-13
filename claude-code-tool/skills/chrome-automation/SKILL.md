@@ -148,12 +148,69 @@ node scripts/cdp.js "$WS_URL" Runtime.evaluate "{\"returnByValue\":true,\"expres
 # 用返回的坐标调用 Page.captureScreenshot 的 clip 参数
 ```
 
-### take_snapshot（DOM 树快照）
+### take_snapshot（Accessibility Tree 快照）
 
-生成简化的 DOM 树（替代 chrome-devtools 的 a11y 快照 + uid 机制，改用 CSS 选择器）：
+获取浏览器计算的真实 Accessibility Tree，包含语义角色、可访问名称、无障碍状态：
 
 ```bash
-node scripts/cdp.js "$WS_URL" Runtime.evaluate '{"returnByValue":true,"expression":"(function(){function walk(el,d){if(d>8)return[];var t=(el.tagName||\"\").toLowerCase();if(!t||[\"script\",\"style\",\"noscript\",\"svg\",\"path\"].includes(t))return[];var r={tag:t};var role=el.getAttribute(\"role\");if(role)r.role=role;var lbl=el.getAttribute(\"aria-label\");if(lbl)r.ariaLabel=lbl;var ph=el.getAttribute(\"placeholder\");if(ph)r.placeholder=ph;var tp=el.getAttribute(\"type\");if(tp)r.type=tp;var href=el.getAttribute(\"href\");if(href)r.href=href;if(!el.children||el.children.length===0){var txt=(el.textContent||\"\").trim().slice(0,80);if(txt)r.text=txt}if(el.id)r.id=el.id;if(el.className&&typeof el.className===\"string\")r.cls=el.className.split(\" \").filter(Boolean).slice(0,3).join(\".\");var ch=[];for(var i=0;i<(el.children||[]).length;i++)ch.push(...walk(el.children[i],d+1));if(ch.length)r.children=ch;return[r]}return JSON.stringify(walk(document.body,0))})()"}'
+node scripts/cdp.js "$WS_URL" Accessibility.getFullAXTree '{}'
+```
+
+返回每个节点的 `nodeId`、`role`（语义角色）、`name`（可访问名称）、`properties`（disabled/checked/expanded 等）、`children`（子节点 ID）。
+不可见元素（`display:none`）不会出现。数据量通常 5-20KB（200-800 tokens）。
+
+**精简版**（只保留可交互元素 + heading + 有文本的叶子节点）：
+
+```bash
+node scripts/cdp.js "$WS_URL" Accessibility.getFullAXTree '{}' | python3 -c "
+import sys, json
+raw = json.load(sys.stdin)
+for n in raw.get('result',{}).get('nodes',[]):
+    role = n.get('role',{}).get('value','')
+    name = n.get('name',{}).get('value','')
+    interesting = role in {'button','link','textbox','checkbox','combobox','menuitem','tab','switch','searchbox','spinbutton','slider','radio','heading'}
+    if not interesting and name and not n.get('childIds') and role not in ('WebArea','generic','paragraph','div'):
+        interesting = True
+    if not interesting: continue
+    props = {p['name']:p['value'] for p in n.get('properties',[]) if p['name'] in ('disabled','checked','expanded','level','url','required','invalid')}
+    parts = [n['nodeId'], role]
+    if name: parts.append(repr(name))
+    if props: parts.append(str(props))
+    print(' '.join(str(p) for p in parts))
+"
+```
+
+**精简版输出示例**：
+```
+4 link '首页' {'url': '/'}
+5 link '用户管理' {'url': '/users'}
+6 heading '用户列表' {'level': 1}
+9 cell '张三'
+10 cell 'admin@example.com'
+11 button '删除'
+```
+
+**验证元素存在**（基于语义角色和名称，不依赖 CSS 选择器）：
+
+```bash
+node scripts/cdp.js "$WS_URL" Accessibility.getFullAXTree '{}' | python3 -c "
+import sys, json
+raw = json.load(sys.stdin)
+found = False
+for n in raw.get('result',{}).get('nodes',[]):
+    role = n.get('role',{}).get('value','')
+    name = n.get('name',{}).get('value','')
+    if role == 'button' and name == '删除':
+        print(f'FOUND: {n[\"nodeId\"]} {role} {repr(name)}')
+        found = True
+if not found: print('NOT FOUND')
+"
+```
+
+**旧版（walk DOM）**：如果需要 CSS 类名、id 等原始 DOM 属性（Accessibility Tree 不提供），仍可用：
+
+```bash
+node scripts/cdp.js "$WS_URL" Runtime.evaluate '{"returnByValue":true,"expression":"(function(){function walk(el,d){if(d>8)return[];var t=(el.tagName||\"\").toLowerCase();if(!t||[\"script\",\"style\",\"noscript\",\"svg\",\"path\"].includes(t))return[];var r={tag:t};var role=el.getAttribute(\"role\");if(role)r.role=role;var lbl=el.getAttribute(\"aria-label\");if(lbl)r.ariaLabel=lbl;if(!el.children||el.children.length===0){var txt=(el.textContent||\"\").trim().slice(0,80);if(txt)r.text=txt}if(el.id)r.id=el.id;if(el.className&&typeof el.className===\"string\")r.cls=el.className.split(\" \").filter(Boolean).slice(0,3).join(\".\");var ch=[];for(var i=0;i<el.children.length;i++)ch.push(...walk(el.children[i],d+1));if(ch.length)r.children=ch;return[r]}return JSON.stringify(walk(document.body,0))})()"}'
 ```
 
 ### wait_for
@@ -212,7 +269,7 @@ node scripts/cdp.js "$WS_URL" Network.setUserAgentOverride '{"userAgent":"Mozill
 | select_page | `curl localhost:9222/json/activate/<id>` |
 | navigate_page | `cdp.js navigate <url>` |
 | take_screenshot | `cdp.js Page.captureScreenshot` |
-| take_snapshot | `cdp.js Runtime.evaluate` + DOM walk |
+| take_snapshot | `cdp.js Accessibility.getFullAXTree` (精简版: + python3 过滤) |
 | click(uid) | `cdp.js Runtime.evaluate` + `querySelector.click()` |
 | fill(uid, value) | `cdp.js Runtime.evaluate` + `querySelector.value=` |
 | fill_form(elements) | `cdp.js Runtime.evaluate` + 批量 JS |
