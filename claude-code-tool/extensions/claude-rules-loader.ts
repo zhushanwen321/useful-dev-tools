@@ -22,6 +22,8 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 interface RuleFile {
   /** Display path for identification (e.g. "~/.claude/rules/form-validation.md") */
   path: string;
+  /** Real (resolved) path for deduplication */
+  realPath: string;
   /** File content with frontmatter stripped */
   content: string;
   /** Glob patterns from frontmatter `paths:` — if present, this is a conditional rule */
@@ -53,10 +55,10 @@ function parseFrontmatter(raw: string): {
   }
 
   // Block array: paths:\n  - glob1\n  - glob2
-  const blockMatch = frontmatter.match(/paths:\s*\n((?:\s+- .+\n?)+)/);
+  const blockMatch = frontmatter.match(/paths:\s*\r?\n((?:\s+- [^\r\n]+\r?\n?)+)/);
   if (blockMatch) {
     const globs = blockMatch[1]
-      .split("\n")
+      .split(/\r?\n/)
       .map((line) =>
         line
           .replace(/^\s+-\s+["']?/, "")
@@ -73,16 +75,24 @@ function parseFrontmatter(raw: string): {
 /**
  * Recursively find all .md files in a directory, sorted for determinism.
  */
-function findMarkdownFiles(dir: string): string[] {
+function findMarkdownFiles(dir: string, visited?: Set<string>): string[] {
   const results: string[] = [];
-  if (!fs.existsSync(dir)) return results;
+  try {
+    const real = fs.realpathSync(dir);
+    if (!real) return results;
+    visited ??= new Set<string>();
+    if (visited.has(real)) return results; // symlink cycle guard
+    visited.add(real);
+  } catch {
+    return results; // ENOENT, EACCES
+  }
 
   try {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        results.push(...findMarkdownFiles(fullPath));
+        results.push(...findMarkdownFiles(fullPath, visited));
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         results.push(fullPath);
       }
@@ -105,10 +115,12 @@ function loadRulesFromDir(
   return files
     .map((filePath) => {
       try {
+        const realPath = fs.realpathSync(filePath);
         const raw = fs.readFileSync(filePath, "utf-8");
         const parsed = parseFrontmatter(raw);
         return {
           path: `${displayPrefix}/${path.relative(rulesDir, filePath)}`,
+          realPath,
           content: parsed.content,
           globs: parsed.globs,
         };
@@ -138,6 +150,11 @@ export default function claudeRulesLoader(pi: ExtensionAPI) {
     }
 
     // 2. Project rules: walk from root to CWD (like Claude Code)
+    // Track loaded real paths to avoid duplicating when walk overlaps with global dir
+    const loadedRealPaths = new Set<string>(
+      allRules.map((r) => r.realPath),
+    );
+
     const dirs: string[] = [];
     let current = ctx.cwd;
     while (current !== path.parse(current).root) {
@@ -149,12 +166,17 @@ export default function claudeRulesLoader(pi: ExtensionAPI) {
 
     for (const dir of dirs) {
       const relDir = path.relative(ctx.cwd, dir) || ".";
-      allRules.push(
-        ...loadRulesFromDir(
-          path.join(dir, ".claude", "rules"),
-          `.claude/rules (${relDir})`,
-        ),
+      const projectRules = loadRulesFromDir(
+        path.join(dir, ".claude", "rules"),
+        `.claude/rules (${relDir})`,
       );
+      // Deduplicate by realPath (global already loaded, skip if walk hits same dir)
+      for (const rule of projectRules) {
+        if (!loadedRealPaths.has(rule.realPath)) {
+          allRules.push(rule);
+          loadedRealPaths.add(rule.realPath);
+        }
+      }
     }
 
     // Separate conditional vs unconditional
