@@ -1,0 +1,23 @@
+{
+  "skill_name": "minimax-vision",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我看看这个截图里的错误信息是什么意思：./error-screenshot.png",
+      "expected_output": "应调用 mmx vision describe 分析截图，用中文描述错误内容并给出诊断建议",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "这个架构图太复杂了，帮我梳理一下各个组件之间的关系",
+      "expected_output": "应调用 mmx vision describe 分析架构图，列出组件、连接和数据流",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "把这个设计稿里的文字都提取出来，我需要整理成文档",
+      "expected_output": "应调用 mmx vision describe 进行 OCR 提取，用中文 prompt 要求完整提取文字",
+      "files": []
+    }
+  ]
+}
