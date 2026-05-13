@@ -118,6 +118,7 @@ function loadRulesFromDir(
         const realPath = fs.realpathSync(filePath);
         const raw = fs.readFileSync(filePath, "utf-8");
         const parsed = parseFrontmatter(raw);
+        if (!parsed.content) return null; // skip empty files
         return {
           path: `${displayPrefix}/${path.relative(rulesDir, filePath)}`,
           realPath,
